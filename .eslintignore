@@ -1,0 +1,5 @@
+etc/*
+node/*
+build/*
+**/*min.js
+!node_modules/*

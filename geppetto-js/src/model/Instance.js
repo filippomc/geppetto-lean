@@ -1,5 +1,7 @@
-const extend = require('../Utility').extend;
+import { extend } from '../Utility';
 import Resources from '../Resources';
+import GeppettoModelNode from "./GeppettoModelNode";
+import ModelFactory from "../ModelFactory";
 /**
  * Client class use to represent an instance object (instantiation of a variable).
  *
@@ -8,15 +10,15 @@ import Resources from '../Resources';
  * @author Matteo Cantarelli
  */
 
-class Instance {
+export default class Instance extends GeppettoModelNode {
 
   constructor (options) {
+    super(options.parent);
     this.id = options.id;
     this.name = options.name;
     this._metaType = options._metaType;
     this.variable = options.variable;
-    this.parent = options.parent;
-    this.children = (options.children != undefined) ? options.children : [];
+    this.children = (options.children !== undefined) ? options.children : [];
     this.capabilities = [];
     this.connections = [];
   }
@@ -120,13 +122,13 @@ class Instance {
         // check it if is a visual type or has a visual type
         if (types[i].getType().getMetaType() == Resources.VISUAL_TYPE_NODE
                         || types[i].getType().getMetaType() == Resources.COMPOSITE_VISUAL_TYPE_NODE
-                        || (types[i].getType().getVisualType() != null)) {
+                        || (types[i].getType().getVisualType() !== null)) {
           hasVisual = true;
           break;
         }
       } else if (types[i].getMetaType() == Resources.VISUAL_TYPE_NODE
                     || types[i].getMetaType() == Resources.COMPOSITE_VISUAL_TYPE_NODE
-                    || types[i].getVisualType() != null) {
+                    || types[i].getVisualType() !== null) {
         hasVisual = true;
         break;
       }
@@ -153,14 +155,14 @@ class Instance {
         // check it if is a visual type or has a visual type
         if (types[i].getType().getMetaType() == Resources.VISUAL_TYPE_NODE || types[i].getType().getMetaType() == Resources.COMPOSITE_VISUAL_TYPE_NODE) {
           visualTypes.push(types[i].getType());
-        } else if (types[i].getType().getVisualType() != null) {
+        } else if (types[i].getType().getVisualType() !== null) {
           visualTypes.push(types[i].getType().getVisualType());
         }
       } else {
         // check it if is a visual type or has a visual type
         if (types[i].getMetaType() == Resources.VISUAL_TYPE_NODE || types[i].getMetaType() == Resources.COMPOSITE_VISUAL_TYPE_NODE) {
           visualTypes.push(types[i]);
-        } else if (types[i].getVisualType() != null) {
+        } else if (types[i].getVisualType() !== null) {
           visualTypes.push(types[i].getVisualType());
         }
       }
@@ -216,7 +218,7 @@ class Instance {
     var parent = this.parent;
     var parentPath = "";
 
-    if (parent != null && parent != undefined) {
+    if (parent !== null && parent !== undefined) {
       parentPath = parent.getInstancePath(useType);
     }
     var path = parentPath + "." + this.getId();
@@ -225,7 +227,7 @@ class Instance {
       path += "(" + this.getType().getId() + ")";
     }
 
-    return (parentPath != "") ? path : path.replace('.','');
+    return (parentPath !== "") ? path : path.replace('.','');
   }
 
   /**
@@ -252,11 +254,11 @@ class Instance {
     var parent = this.parent;
     var parentPath = "";
 
-    if (parent != null && parent != undefined) {
+    if (parent !== null && parent !== undefined) {
       parentPath = parent.getInstancePath();
     }
 
-    return (parentPath != "") ? (parentPath + "." + this.getId()) : this.getId();
+    return (parentPath !== "") ? (parentPath + "." + this.getId()) : this.getId();
   }
 
 
@@ -330,7 +332,7 @@ class Instance {
    */
   getConnections (direction) {
 
-    // ModelFactory.updateConnectionInstances(this); This is evil. Removed for a higher purpose
+    this.instanceService.updateConnectionInstances(this);
 
     var connections = this.connections;
 
@@ -361,7 +363,27 @@ class Instance {
 
     return connections;
   }
+  /**
+   * Resolve connection values
+   */
+  resolveConnections () {
+    super.resolveConnections();
+    // get initial values
+    var initialValues = this.getVariable().getWrappedObj().initialValues;
 
+    // get pointer A and pointer B
+    var connectionValue = initialValues[0].value;
+    // resolve A and B to Pointer Objects
+    var pointerA = ModelFactory.createPointer(connectionValue.a);
+    var pointerB = ModelFactory.createPointer(connectionValue.b);
+
+    ModelFactory.augmentPointer(pointerA, this);
+    ModelFactory.augmentPointer(pointerB, this);
+
+    // set A and B on connection
+    this.setA(pointerA);
+    this.setB(pointerB);
+  }
   /**
    * Get children instances
    *
@@ -380,11 +402,8 @@ class Instance {
       children[c].delete();
     }
 
-    ModelFactory.deleteInstance(this);
+    this.instanceService.deleteInstance(this);
   }
 
 }
 
-// Compatibility with new imports and old require syntax
-Instance.default = Instance;
-module.exports = Instance;

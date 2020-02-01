@@ -45,7 +45,6 @@ module.exports = {
     "keyword-spacing": 2,
     "no-useless-escape": 0,
     "brace-style": 2, // enforce open bracket in same line
-    "multiline-comment-style": [2, "starred-block"], // enforce commented block style
     "object-curly-newline": [2, { "multiline": true }], // enforce  obj items identation
     "operator-linebreak": [2, "before"], // break operator to new line
     "space-infix-ops": 2, 
@@ -57,7 +56,8 @@ module.exports = {
     "arrow-body-style": [2, "as-needed"],
     "object-curly-spacing": [2, "always"],
     "template-curly-spacing": [2, "never"],
-    "space-before-function-paren": [1, "always"]
+    "space-before-function-paren": [1, "always"],
+    "semi": [1, "always"]
   },
   globals: {
     "G": true,

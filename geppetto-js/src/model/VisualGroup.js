@@ -7,16 +7,14 @@
  * @author Giovanni Idili
  * @author Matteo Cantarelli
  */
+import ObjectWrapper from './ObjectWrapper';
+import VisualGroupElement from './VisualGroupElement';
 
 
-var ObjectWrapper = require('./ObjectWrapper').default;
-var VisualGroupElement = require('./VisualGroupElement').default;
-
-
-function VisualGroup (options) {
+export default function VisualGroup (options) {
   ObjectWrapper.prototype.constructor.call(this, options);
-  this.visualGroupElements = (options.visualGroupElements != undefined) ? options.visualGroupElements : [];
-  this.tags = (options.tags != undefined) ? options.tags : [];
+  this.visualGroupElements = (options.visualGroupElements !== undefined) ? options.visualGroupElements : [];
+  this.tags = (options.tags !== undefined) ? options.tags : [];
 }
 
 VisualGroup.prototype = Object.create(ObjectWrapper.prototype);
@@ -99,7 +97,7 @@ VisualGroup.prototype.showAllVisualGroupElements = function (elements, mode, ins
 
 
   for (var i = 0; i < elements.length; i++) {
-    if (elements[i].getValue() != null) {
+    if (elements[i].getValue() !== null) {
       total = total + parseFloat(elements[i].getValue());
       allElements.push(elements[i].getValue());
     }
@@ -112,9 +110,9 @@ VisualGroup.prototype.showAllVisualGroupElements = function (elements, mode, ins
   for (var j = 0; j < elements.length; j++) {
     groups[elements[j].getId()] = {};
     var color = elements[j].getColor();
-    if (elements[j].getValue() != null) {
+    if (elements[j].getValue() !== null) {
       var intensity = 1;
-      if (this.maxDensity != this.minDensity) {
+      if (this.maxDensity !== this.minDensity) {
         intensity = (elements[j].getValue() - this.minDensity) / (this.maxDensity - this.minDensity);
       }
 
@@ -134,7 +132,7 @@ VisualGroup.prototype.getMinDensity = function () {
 
   // calculate mean;
   for (var i = 0; i < elements.length; i++) {
-    if (elements[i].getValue() != null) {
+    if (elements[i].getValue() !== null) {
       allElements.push(elements[i].getValue());
     }
   }
@@ -149,7 +147,7 @@ VisualGroup.prototype.getMaxDensity = function () {
 
   // calculate mean;
   for (var i = 0; i < elements.length; i++) {
-    if (elements[i].getValue() != null) {
+    if (elements[i].getValue() !== null) {
       allElements.push(elements[i].getValue());
     }
   }
@@ -166,7 +164,3 @@ VisualGroup.prototype.print = function () {
             + "    HighSpectrumColor : " + this.getHighSpectrumColor() + "\n"
             + "    LowSpectrumColor : " + this.getLowSpectrumColor() + "\n";
 };
-
-// Compatibility with new imports and old require syntax
-VisualGroup.default = VisualGroup;
-module.exports = VisualGroup;

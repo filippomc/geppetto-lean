@@ -7,10 +7,10 @@
  * @author nitesh thali
  */
 
-var Value = require('./Value').default;
+import Value from './Value';
     
 
-function ImportValue (options) {
+export default function ImportValue (options) {
   Value.prototype.constructor.call(this, options);
 }
     
@@ -39,6 +39,3 @@ ImportValue.prototype.getPath = function () {
 
 };
 
-// Compatibility with new imports and old require syntax
-ImportValue.default = ImportValue;
-module.exports = ImportValue;

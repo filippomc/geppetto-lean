@@ -6,13 +6,13 @@
  * @author Matteo Cantarelli
  */
 
-var Type = require('./Type').default;
+import Type from './Type';
 
 
-function ImportType (options) {
+export default function ImportType (options) {
   Type.prototype.constructor.call(this, options);
   this.visualType = options.visualType;
-  this.superType = (options.superType != 'undefined') ? options.superType : [];
+  this.superType = (options.superType !== 'undefined') ? options.superType : [];
   this.capabilities = [];
   this.variableReferences = [];
 }
@@ -66,6 +66,3 @@ ImportType.prototype.resolve = function (callback) {
   GEPPETTO.Manager.resolveImportType(this.getPath(), callback);
 };
 
-// Compatibility with new imports and old require syntax
-ImportType.default = ImportType;
-module.exports = ImportType;

@@ -7,12 +7,12 @@
  * @author Giovanni Idili
  */
 
-  
-var ObjectWrapper = require('./ObjectWrapper').default;
 
-function Pointer (options) {
+import ObjectWrapper from './ObjectWrapper';
+
+export default function Pointer (options) {
   ObjectWrapper.prototype.constructor.call(this, options);
-  this.elements = (options.elements != undefined) ? options.elements : [];
+  this.elements = (options.elements !== undefined) ? options.elements : [];
 }
 
 Pointer.prototype = Object.create(ObjectWrapper.prototype);
@@ -70,10 +70,3 @@ Pointer.prototype.getElements = function () {
 Pointer.prototype.getPoint = function (){
   return this.getWrappedObj().point;
 }
-    
-
-// Compatibility with new imports and old require syntax
-Pointer.default = Pointer;
-module.exports = Pointer;
-
-

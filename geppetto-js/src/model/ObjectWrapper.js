@@ -1,3 +1,5 @@
+import GeppettoModelNode from './GeppettoModelNode';
+
 /**
  * Base class that provides wrapping functionality for a generic underlying object (with id and name).
  *
@@ -5,16 +7,12 @@
  * @author Giovanni Idili
  */
 
+export default class ObjectWrapper extends GeppettoModelNode{
 
-function ObjectWrapper (options) {
-
-  this.wrappedObj = options.wrappedObj;
-  this.parent = options.parent;
-}
-
-ObjectWrapper.prototype = {
-
-  constructor: ObjectWrapper,
+  constructor (options) {
+    super(options.parent);
+    this.wrappedObj = options.wrappedObj;
+  }
 
 
   /**
@@ -24,9 +22,9 @@ ObjectWrapper.prototype = {
    * @returns {String} Name of the node
    *
    */
-  getName: function () {
+  getName () {
     return this.wrappedObj.name;
-  },
+  }
 
   /**
    * Get the id associated with node
@@ -34,9 +32,9 @@ ObjectWrapper.prototype = {
    * @command Node.getId()
    * @returns {String} ID of node
    */
-  getId: function () {
+  getId () {
     return this.wrappedObj.id;
-  },
+  }
 
   /**
    * Get the wrapped obj
@@ -44,9 +42,9 @@ ObjectWrapper.prototype = {
    * @command Node.getWrappedObj()
    * @returns {Object} - Wrapped object
    */
-  getWrappedObj: function () {
+  getWrappedObj () {
     return this.wrappedObj;
-  },
+  }
 
   /**
    * Get meta type
@@ -56,34 +54,11 @@ ObjectWrapper.prototype = {
    * @returns {String} - meta type
    *
    */
-  getMetaType: function () {
+  getMetaType () {
     return this.wrappedObj.eClass;
-  },
+  }
 
-  /**
-   * Get parent
-   *
-   * @command Type.getParent()
-   *
-   * @returns {Object} - Parent object
-   *
-   */
-  getParent: function () {
-    return this.parent;
-  },
 
-  /**
-   * Set parent
-   *
-   * @command Type.setParent()
-   *
-   * @returns {Object} - Current object
-   *
-   */
-  setParent: function (parent) {
-    this.parent = parent;
-    return this;
-  },
 
   /**
    * Get path
@@ -93,7 +68,7 @@ ObjectWrapper.prototype = {
    * @returns {String} - path
    *
    */
-  getPath: function () {
+  getPath () {
     if (this.parent) {
       return this.parent.getPath() + "." + this.getId();
     } else {
@@ -101,8 +76,5 @@ ObjectWrapper.prototype = {
     }
 
   }
-};
+}
 
-// Compatibility with new imports and old require syntax
-ObjectWrapper.default = ObjectWrapper;
-module.exports = ObjectWrapper;

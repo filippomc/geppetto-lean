@@ -7,18 +7,24 @@
  * @author Matteo Cantarelli
  */
 
-export default {
-  capabilityId: 'ParticlesCapability',
-  watched: false,
-  timeSeries: null,
+export default class AParticlesCapability {
 
+  contructor (experimentsController) {
+    if (!this.experimentsController) {
+      throw new Error("experimentsController is required.");
+    }
+    this.capabilityId = 'ParticlesCapability';
+    this.watched = false;
+    this.timeSeries = null;
+    this.experimentsController = experimentsController;
+  }
   /**
    * Get value of quantity
    *
    * @command Variable.getTimeSeries()
    * @returns {String} Value of quantity
    */
-  getTimeSeries: function () {
+  getTimeSeries () {
     if (!this.timeSeries) {
       var timeSeries = undefined;
       var initialValues = this.getVariable().getWrappedObj().initialValues;
@@ -31,7 +37,7 @@ export default {
       return timeSeries;
     }
     return this.timeSeries;
-  },
+  }
 
 
   /**
@@ -40,10 +46,10 @@ export default {
    * @command Variable.setTimeSeries()
    * @returns {Object} The state variable
    */
-  setTimeSeries: function (timeSeries) {
+  setTimeSeries (timeSeries) {
     this.timeSeries = timeSeries;
     return this;
-  },
+  }
 
   /**
    * Get the initial value for the state variable
@@ -51,10 +57,10 @@ export default {
    * @command Variable.getInitialValue()
    * @returns {Object} The initial value of the state variable
    */
-  getInitialValue: function () {
+  getInitialValue () {
 
     return this.getVariable().getWrappedObj().initialValues;
-  },
+  }
 
 
   /**
@@ -63,10 +69,10 @@ export default {
    * @command Variable.getWatched()
    * @returns {boolean} true if this variable is being watched
    */
-  isWatched: function () {
+  isWatched () {
     // NOTE: this.watched is a flag added by this API / Capability
     return this.watched;
-  },
+  }
 
   /**
    * Set watched
@@ -74,12 +80,12 @@ export default {
    * @command Variable.setWatched()
    * @param {Boolean} watched - Object with options attributes to initialize node
    */
-  setWatched: function (isWatched, updateServer) {
+  setWatched (isWatched, updateServer) {
     if (updateServer == undefined) {
       updateServer = true;
     }
     if (updateServer && isWatched != this.watched) {
-      GEPPETTO.ExperimentsController.watchVariables([this], isWatched);
+      this.experimentsController.watchVariables([this], isWatched);
     }
     this.watched = isWatched;
     return this;

@@ -12,17 +12,25 @@
 var Instance = require('../model/Instance').default;
 var Variable = require('../model/Variable').default;
 
-export default {
-  capabilityId: 'ParameterCapability',
-  value: null,
+export default class ParameterCapability {
 
+  contructor (experimentsController) {
+    if (!this.experimentsController) {
+      throw new Error("experimentsController is required.");
+    }
+    this.capabilityId = 'ParameterCapability';
+    this.value = null;
+    this.timeSeries = null;
+    this.inputs = null;
+    this.experimentsController = experimentsController;
+  }
   /**
    * Get the type of tree this is
    *
    * @command Parameter.getUnit()
    * @returns {String} Unit for quantity
    */
-  getUnit: function () {
+  getUnit () {
     var unit = undefined;
     var initialValues = null;
 
@@ -39,14 +47,14 @@ export default {
     }
 
     return unit;
-  },
+  }
 
   /**
    * Get initial value of parameter
    * @command Parameter.getInitialValue()
    * @returns {String} Value of quantity
    */
-  getInitialValue: function () {
+  getInitialValue () {
     var initVal = null;
 
     var initialValues = null;
@@ -65,7 +73,7 @@ export default {
     }
 
     return initVal;
-  },
+  }
 
   /**
    * Get value of quantity
@@ -73,7 +81,7 @@ export default {
    * @command Parameter.getValue()
    * @returns {String} Value of quantity
    */
-  getValue: function () {
+  getValue () {
     var value = null;
 
     if ((this instanceof Instance) && this.getVariable().isStatic()){
@@ -88,7 +96,7 @@ export default {
     }
 
     return value;
-  },
+  }
 
   /**
    * Get scaling factor
@@ -96,7 +104,7 @@ export default {
    * @command Parameter.getScalingFactor()
    * @returns {String} Scaling Factor for value and unit
    */
-  getScalingFactor: function () {
+  getScalingFactor () {
     var scalingFactor = undefined;
     var initialValues = null;
 
@@ -113,12 +121,12 @@ export default {
     }
 
     return scalingFactor;
-  },
+  }
 
   /**
    * Sets Value for parameter node.
    */
-  setValue: function (value, updateServer) {
+  setValue (value, updateServer) {
     if (updateServer == undefined) {
       updateServer = true;
     }
@@ -127,7 +135,7 @@ export default {
     this.value = value;
             
     if (updateServer) {
-      GEPPETTO.ExperimentsController.setParameters([this]);
+      this.experimentsController.setParameters([this]);
     }
 
 

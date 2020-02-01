@@ -1,4 +1,4 @@
-const Instance = require('./Instance').default;
+import Instance from './Instance';
 
 /**
  * Client class use to represent an array element instance.
@@ -24,7 +24,7 @@ class ArrayElementInstance extends Instance {
       children[c].delete();
     }
 
-    GEPPETTO.ModelFactory.deleteInstance(this);
+    this.modelFactory.deleteInstance(this);
   }
 
 
@@ -33,20 +33,20 @@ class ArrayElementInstance extends Instance {
     var parentPath = "";
     var parentId = "";
 
-    if (parent != null && parent != undefined) {
+    if (parent !== null && parent !== undefined) {
       parentPath = parent.getInstancePath();
       parentId = parent.getId();
     }
 
     var path = parentPath.replace(parentId, this.getId());
 
-    return (parentPath != "") ? path : this.getId();
+    return (parentPath !== "") ? path : this.getId();
   }
 
   getPosition () {
 
-    if ((this.getVariable().getType().getDefaultValue().elements != undefined)
-            && (this.getVariable().getType().getDefaultValue().elements[this.getIndex()] != undefined)) {
+    if ((this.getVariable().getType().getDefaultValue().elements !== undefined)
+            && (this.getVariable().getType().getDefaultValue().elements[this.getIndex()] !== undefined)) {
       return this.getVariable().getType().getDefaultValue().elements[this.getIndex()].position;
     }
 

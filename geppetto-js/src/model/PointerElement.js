@@ -9,7 +9,7 @@
  */
 
 
-function PointerElement (options) {
+export default function PointerElement (options) {
 
   this.wrappedObj = options.wrappedObj;
   this.variable = options.variable;
@@ -100,7 +100,3 @@ PointerElement.prototype = {
     return path;
   }
 };
-
-// Compatibility with new imports and old require syntax
-PointerElement.default = PointerElement;
-module.exports = PointerElement;

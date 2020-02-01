@@ -1,15 +1,14 @@
 const ModelFactory = require('../src/ModelFactory').default;
-
+const InstanceFactory = require('../src/Instances').default;
 const testModel = require('./resources/test_model.json');
 const AA = require('../src/model/ArrayElementInstance').default;
 
 
 test('load test model with new instances', () => {
-  const modelFactory = new ModelFactory();
-  const model = modelFactory.createGeppettoModel(testModel, true, true);
-  const instances = modelFactory.createInstances(model);
+  const model = ModelFactory.createGeppettoModel(testModel, true, true);
+  const instances = ModelFactory.createInstances(model);
 
-  expect(modelFactory.allPaths.length).toBe(11);
+  expect(model.allPaths.length).toBe(11);
 
   expect(instances.length).toBe(7)
   expect(instances.a.getValue().l[0]).toBe('x');
@@ -26,18 +25,18 @@ test('load test model with new instances', () => {
 });
 
 test('Merge models', () => {
-  const modelFactory = new ModelFactory();
-  const model = modelFactory.createGeppettoModel(testModel, true, true);
-  const instances = modelFactory.createInstances(model);
 
-  expect(modelFactory.allPaths.length).toBe(11);
+  const model = ModelFactory.createGeppettoModel(testModel, true, true);
+  const instances = ModelFactory.createInstances(model);
+
+  expect(model.allPaths.length).toBe(11);
   expect(instances.length).toBe(7);
   
-  let diffReport = modelFactory.mergeModel(testModel);
+  let diffReport = ModelFactory.mergeModel(testModel);
   expect(diffReport.variables.length).toBe(0);
 
-  modelFactory.createInstancesFromDiffReport(diffReport, instances);
-  expect(modelFactory.allPaths.length).toBe(11);
+  InstanceFactory.createInstancesFromDiffReport(diffReport, instances);
+  expect(model.allPaths.length).toBe(11);
   expect(instances.length).toBe(7);
 
   testModel.variables.push({
@@ -52,12 +51,12 @@ test('Merge models', () => {
     "id": "v2"
   });
 
-  diffReport = modelFactory.mergeModel(testModel);
+  diffReport = ModelFactory.mergeModel(testModel);
   
   expect(diffReport.variables.length).toBe(1);
-  expect(modelFactory.allPaths.length).toBe(13);
-  diffReport = modelFactory.mergeModel(testModel);
-  modelFactory.createInstancesFromDiffReport(diffReport, instances);
+  expect(model.allPaths.length).toBe(13);
+  diffReport = ModelFactory.mergeModel(testModel);
+  InstanceFactory.createInstancesFromDiffReport(diffReport, instances);
   
   expect(instances.length).toBe(7);
   instances.getInstance('v2');
@@ -76,11 +75,11 @@ test('Merge models', () => {
     "id": "wv2"
   });
 
-  diffReport = modelFactory.mergeModel(testModel);
+  diffReport = ModelFactory.mergeModel(testModel);
   expect(diffReport.variables.length).toBe(0);
   expect(diffReport.worlds[0].variables.length).toBe(1);
   expect(diffReport.worlds[0].instances.length).toBe(0);
-  expect(modelFactory.allPaths.length).toBe(15);
+  expect(model.allPaths.length).toBe(15);
   expect(instances.length).toBe(8);
   instances.getInstance('wv2');
   expect(instances.length).toBe(9);

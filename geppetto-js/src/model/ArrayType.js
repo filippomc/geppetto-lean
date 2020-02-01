@@ -1,5 +1,3 @@
-
-
 /**
  * Client class use to represent an array type.
  *
@@ -8,41 +6,76 @@
  * @author Matteo Cantarelli
  */
 
-var Type = require('./Type').default;
+import Type from './Type';
 
-function ArrayType (options) {
-  Type.prototype.constructor.call(this, options);
-  this.type = options.type;
-  this.size = options.elements;
+export default class ArrayType extends Type {
+
+
+  constructor (node, library) {
+    super(node, library);
+    this.type = node.arrayType;
+    this.size = node.size;
+  }
+
+
+  /**
+   * Get type for array type
+   *
+   * @command ArrayType.getType()
+   *
+   * @returns {Type} - type
+   *
+   */
+  getType () {
+    return this.type;
+  }
+
+  /**
+   * Get array size
+   *
+   * @command ArrayType.getSize()
+   *
+   * @returns {int} - size of the array
+   *
+   */
+  getSize () {
+    return this.size;
+  }
+
+
+  populateTypeReferences () {
+    super.populateTypeReferences();
+    const node = this;
+
+    // take array type string - looks like this --> '//@libraries.1/@types.5'
+    var arrayType = node.getType();
+
+    if (arrayType !== undefined) {
+      var typeObj = node.geppettoModel.resolve(arrayType.$ref);
+      node.type = typeObj;
+    }
+
+    // resolve super type
+    var superType = node.getSuperType();
+    if (superType !== undefined) {
+      var typeObjs = [];
+
+      // convert to array if single element
+      if (!(superType instanceof Array)) {
+        superType = [superType];
+      }
+
+      for (var a = 0; a < superType.length; a++) {
+        if (superType[a].$ref) {
+          // replace with reference to actual type
+          typeObjs.push(node.geppettoModel.resolve(superType[a].$ref));
+        } else {
+          // replace with reference to actual type
+          typeObjs.push(superType[a]);
+        }
+      }
+
+      node.superType = typeObjs;
+    }
+  }
 }
-
-ArrayType.prototype = Object.create(Type.prototype);
-ArrayType.prototype.constructor = ArrayType;
-
-/**
- * Get type for array type
- *
- * @command ArrayType.getType()
- *
- * @returns {Type} - type
- *
- */
-ArrayType.prototype.getType = function () {
-  return this.type;
-};
-
-/**
- * Get array size
- *
- * @command ArrayType.getSize()
- *
- * @returns {int} - size of the array
- *
- */
-ArrayType.prototype.getSize = function () {
-  return this.size;
-};
-
-// Compatibility with new imports and old require syntax
-ArrayType.default = ArrayType;
-module.exports = ArrayType;

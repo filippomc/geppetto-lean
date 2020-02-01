@@ -1,5 +1,3 @@
-
-
 /**
  * Client class use to represent an instance object (instantiation of a variable).
  *
@@ -7,30 +5,47 @@
  * @author Giovanni Idili
  */
 
+import Instance from '../model/Instance';
+import ArrayInstance from '../model/ArrayInstance';
+import Type from '../model/Type';
+import Variable from '../model/Variable';
+import Resources from '../Resources';
 
-var Instance = require('../model/Instance').default;
-var ArrayInstance = require('../model/ArrayInstance').default;
-var Type = require('../model/Type').default;
-var Variable = require('../model/Variable').default;
+export default class AVisualCapability {
+  
 
-export default {
-  capabilityId: 'VisualCapability',
-  visible: true,
-  selected: false,
+  constructor (sceneController, instancesService, eventsService) {
+    if (!this.sceneController) {
+      throw new Error("sceneController is required.");
+    }
+    if (!this.instancesService) {
+      throw new Error("instancesService is required.");
+    }
+    if (!this.experimentsController) {
+      throw new Error("experimentsController is required.");
+    }
+    
+    this.sceneController = sceneController;
+    this.instancesService = instancesService;
+    this.eventsService = eventsService;
 
+    this.capabilityId = 'VisualCapability';
+    this.visible = true;
+    this.selected = false;
+  }
   /**
    * Hides the instance or class of instances
    *
    * @command AVisualCapability.hide()
    *
    */
-  hide: function (nested) {
+  hide (nested) {
     if (nested === undefined) {
       nested = true;
     }
 
     if (this instanceof Instance || this instanceof ArrayInstance) {
-      GEPPETTO.SceneController.hideInstance(this.getInstancePath());
+      this.sceneController.hideInstance(this.getInstancePath());
       this.visible = false;
 
       if (nested === true && typeof this.getChildren === "function") {
@@ -42,22 +57,22 @@ export default {
         }
       }
 
-      var message = GEPPETTO.Resources.HIDE_ASPECT + this.getInstancePath();
+      var message = Resources.HIDE_ASPECT + this.getInstancePath();
     } else if (this instanceof Type || this instanceof Variable) {
       // fetch all instances for the given type or variable and call hide on each
-      var instances = GEPPETTO.ModelFactory.getAllInstancesOf(this);
+      var instances = this.instancesService.getAllInstancesOf(this);
       for (var j = 0; j < instances.length; j++) {
         if (instances[j].hasCapability(this.capabilityId)) {
           instances[j].hide(nested);
         }
       }
 
-      var message = GEPPETTO.Resources.HIDE_ASPECT + this.getPath();
+      var message = Resources.HIDE_ASPECT + this.getPath();
     }
-    GEPPETTO.trigger(GEPPETTO.Events.Visibility_changed, this);
+    this.eventsService.visibilityChanged(this);
 
     return message;
-  },
+  }
 
   /**
    * Shows the instance or class of instances
@@ -65,13 +80,13 @@ export default {
    * @command AVisualCapability.show()
    *
    */
-  show: function (nested) {
+  show (nested) {
     if (nested === undefined) {
       nested = true;
     }
 
     if (this instanceof Instance || this instanceof ArrayInstance) {
-      GEPPETTO.SceneController.showInstance(this.getInstancePath());
+      this.sceneController.showInstance(this.getInstancePath());
       this.visible = true;
 
       if (nested === true && typeof this.getChildren === "function") {
@@ -83,22 +98,22 @@ export default {
         }
       }
 
-      var message = GEPPETTO.Resources.SHOW_ASPECT + this.getInstancePath();
+      var message = Resources.SHOW_ASPECT + this.getInstancePath();
     } else if (this instanceof Type || this instanceof Variable) {
       // fetch all instances for the given type or variable and call show on each
-      var instances = GEPPETTO.ModelFactory.getAllInstancesOf(this);
+      var instances = this.instancesService.getAllInstancesOf(this);
       for (var j = 0; j < instances.length; j++) {
         if (instances[j].hasCapability(this.capabilityId)) {
           instances[j].show(nested);
         }
       }
 
-      var message = GEPPETTO.Resources.HIDE_ASPECT + this.getPath();
+      var message = Resources.HIDE_ASPECT + this.getPath();
     }
-            
-    GEPPETTO.trigger(GEPPETTO.Events.Visibility_changed, this);
+    
+    this.eventsService.visibilityChanged(this);
     return message;
-  },
+  }
 
   /**
    * Returns whether the object is visible or not
@@ -106,9 +121,9 @@ export default {
    * @command AVisualCapability.isVisible()
    *
    */
-  isVisible: function () {
+  isVisible () {
     return this.visible;
-  },
+  }
 
   /**
    * Returns whether the object is selected or not
@@ -116,9 +131,9 @@ export default {
    * @command AVisualCapability.isSelected()
    *
    */
-  isSelected: function () {
+  isSelected () {
     return this.selected;
-  },
+  }
 
   /**
    * Change the opacity of an instance or class of instances
@@ -126,19 +141,19 @@ export default {
    * @command AVisualCapability.setOpacity(opacity)
    *
    */
-  setOpacity: function (opacity) {
+  setOpacity (opacity) {
 
-    GEPPETTO.SceneController.setOpacity(this.getInstancePath(), opacity);
-  },
+    this.sceneController.setOpacity(this.getInstancePath(), opacity);
+  }
 
 
   /**
    *
    * @returns {*}
    */
-  getColor: function () {
-    return GEPPETTO.SceneController.getColor(this);
-  },
+  getColor () {
+    return this.sceneController.getColor(this);
+  }
 
   /**
    * Change the color of an instance or class of instances
@@ -146,14 +161,14 @@ export default {
    * @command AVisualCapability.setColor(color)
    *
    */
-  setColor: function (color) {
+  setColor (color) {
 
-    GEPPETTO.SceneController.setColor(this.getInstancePath(), color);
+    this.sceneController.setColor(this.getInstancePath(), color);
 
-    GEPPETTO.trigger(GEPPETTO.Events.Color_set, { instance: this, color: color });
+    this.eventsService.colorChanged({ instance: this, color: color });
 
     return this;
-  },
+  }
 
   /**
    * Select the instance or class of instances
@@ -161,7 +176,7 @@ export default {
    * @command AVisualCapability.select()
    *
    */
-  select: function (nested, geometryIdentifier, point) {
+  select (nested, geometryIdentifier, point) {
     if (nested === undefined) {
       nested = true;
     }
@@ -172,13 +187,13 @@ export default {
       if (!this.selected) {
         // set selection flag local to the instance and add to geppetto selection list
         this.selected = true;
-        GEPPETTO.SceneController.selectInstance(this.getInstancePath(), geometryIdentifier);
-        message = GEPPETTO.Resources.SELECTING_ASPECT + this.getInstancePath();
+        this.sceneController.selectInstance(this.getInstancePath(), geometryIdentifier);
+        message = Resources.SELECTING_ASPECT + this.getInstancePath();
 
         // signal selection has changed in simulation pass instance
-        GEPPETTO.trigger(GEPPETTO.Events.Select, this, geometryIdentifier, point);
+        this.eventsService.select(this, geometryIdentifier, point);
       } else {
-        message = GEPPETTO.Resources.ASPECT_ALREADY_SELECTED;
+        message = Resources.ASPECT_ALREADY_SELECTED;
       }
 
       if (nested === true && typeof this.getChildren === "function") {
@@ -191,18 +206,18 @@ export default {
       }
     } else if (this instanceof Type || this instanceof Variable) {
       // fetch all instances for the given type or variable and call hide on each
-      var instances = GEPPETTO.ModelFactory.getAllInstancesOf(this);
+      var instances = this.instancesService.getAllInstancesOf(this);
       for (var j = 0; j < instances.length; j++) {
         if (instances[j].hasCapability(this.capabilityId)) {
           instances[j].select(nested, geometryIdentifier, point);
         }
       }
 
-      message = GEPPETTO.Resources.BATCH_SELECTION;
+      message = Resources.BATCH_SELECTION;
     }
 
     return message;
-  },
+  }
 
   /**
    * Deselects the instance or class of instances
@@ -210,7 +225,7 @@ export default {
    * @command AVisualCapability.deselect()
    *
    */
-  deselect: function (nested) {
+  deselect (nested) {
     if (nested === undefined) {
       nested = true;
     }
@@ -219,13 +234,13 @@ export default {
 
     if (this instanceof Instance || this instanceof ArrayInstance) {
       if (this.selected) {
-        message = GEPPETTO.Resources.DESELECTING_ASPECT + this.getInstancePath();
-        GEPPETTO.SceneController.deselectInstance(this.getInstancePath());
+        message = Resources.DESELECTING_ASPECT + this.getInstancePath();
+        this.sceneController.deselectInstance(this.getInstancePath());
         this.selected = false;
         // trigger event that selection has been changed
-        GEPPETTO.trigger(GEPPETTO.Events.Select, this);
+        this.eventsService.select(this);
       } else {
-        message = GEPPETTO.Resources.ASPECT_NOT_SELECTED;
+        message = Resources.ASPECT_NOT_SELECTED;
       }
 
       // nested
@@ -239,18 +254,18 @@ export default {
       }
     } else if (this instanceof Type || this instanceof Variable) {
       // fetch all instances for the given type or variable and call hide on each
-      var instances = GEPPETTO.ModelFactory.getAllInstancesOf(this);
+      var instances = this.instancesService.getAllInstancesOf(this);
       for (var j = 0; j < instances.length; j++) {
         if (instances[j].hasCapability(this.capabilityId)) {
           instances[j].deselect(nested);
         }
       }
 
-      message = GEPPETTO.Resources.BATCH_DESELECTION;
+      message = Resources.BATCH_DESELECTION;
     }
 
     return message;
-  },
+  }
 
   /**
    * Zooms to instance or class of instances
@@ -258,32 +273,32 @@ export default {
    * @command AVisualCapability.zoomTo()
    *
    */
-  zoomTo: function () {
+  zoomTo () {
     if (this instanceof Instance || this instanceof ArrayInstance) {
-      GEPPETTO.SceneController.zoomTo([this]);
-      return GEPPETTO.Resources.ZOOM_TO_ENTITY + this.getInstancePath();
+      this.sceneController.zoomTo([this]);
+      return Resources.ZOOM_TO_ENTITY + this.getInstancePath();
     } else if (this instanceof Type || this instanceof Variable) {
       // fetch all instances for the given type or variable and call hide on each
-      var instances = GEPPETTO.ModelFactory.getAllInstancesOf(this);
-      GEPPETTO.SceneController.zoomTo(instances);
+      var instances = this.instancesService.getAllInstancesOf(this);
+      this.sceneController.zoomTo(instances);
     }
     return this;
-  },
+  }
 
   /**
    * Set the type of geometry to be used for this aspect
    */
-  setGeometryType: function (type, thickness) {
-    GEPPETTO.SceneController.setGeometryType(this, type, thickness)
+  setGeometryType (type, thickness) {
+    this.sceneController.setGeometryType(this, type, thickness);
     return this;
-  },
+  }
 
   /**
    * Show connection lines for instances.
    * @param {boolean} mode - Show or hide connection lines
    */
-  showConnectionLines: function (mode) {
-    GEPPETTO.SceneController.showConnectionLines(this.getInstancePath(), mode);
+  showConnectionLines (mode) {
+    this.sceneController.showConnectionLines(this.getInstancePath(), mode);
     return this;
   }
 }

@@ -30,349 +30,88 @@ import AStateVariableCapability from './capabilities/AStateVariableCapability';
 import ADerivedStateVariableCapability from './capabilities/ADerivedStateVariableCapability';
 import Resources from './Resources';
 import { extractMethodsFromObject } from './Utility';
-import Instances from './Instances';
+import InstanceFactory from './Instances';
+import ModelUtils from "./ModelUtils";
+
 /**
  * @class ModelFactory
  */
 class ModelFactory {
 
 
-  constructor(createTagsCallback) {
-    /*
-  * Variables to keep track of tree building state go here if needed
-  */
-    this.rawGeppetoModel = null;
-    this.geppettoModel = null;
-    this.instances = null;
-    this.allPaths = [];
-    this.allStaticVarsPaths = {};
-    this.allPathsIndexing = [];
-    this.newPathsIndexing = [];
-    this.instanceTags = {};
+  constructor (createTagsCallback) {
+
     this.createTagsCallback = createTagsCallback ? createTagsCallback : () => undefined;
   }
 
   /**
    * Creates and populates Geppetto model
    *
-   * @param jsonModel
-   * @param storeRaw - store the raw and object models in the model factory
+   * @param rawModel
+   * @param storeModel
    * @param populateRefs - populate type references after model creation
    *
    * @returns {GeppettoModel}
    */
-  createGeppettoModel(jsonModel, storeModel, populateRefs) {
-    // set defaults for optional flags
-    if (storeModel == undefined) {
-      // default behaviour store model
-      storeModel = true;
+  static createGeppettoModel (rawModel, storeModel = true, populateRefs = true) {
+    if (rawModel.eClass !== 'GeppettoModel') {
+      throw new Error("Not a geppetto model");
     }
-    if (populateRefs == undefined) {
-      // default behaviour populate type references
-      populateRefs = true;
+    const geppettoModel = this.createModel(rawModel);
+
+    // create variables
+    if (rawModel.variables) {
+      console.warn('Geppetto variables are deprecated: use worlds instead.');
+      geppettoModel.variables = ModelFactory.createVariables(rawModel.variables, geppettoModel);
     }
 
-    var geppettoModel = null;
-
-    if (jsonModel.eClass == 'GeppettoModel') {
-      if (storeModel) {
-        // store raw model for easy access during model building operations
-        this.rawGeppetoModel = jsonModel;
-      }
-
-      geppettoModel = this.createModel(jsonModel);
-
-      if (storeModel) {
-        // store raw model for easy access during model building operations
-        this.rawGeppetoModel = jsonModel;
-        // store object model
-        this.geppettoModel = geppettoModel;
-      }
-
-      // create variables
-      if (jsonModel.variables) {
-        console.warn('Geppetto variables are deprecated: use worlds instead.');
-        geppettoModel.variables = this.createVariables(jsonModel.variables, geppettoModel);
-      }
-      if (jsonModel.worlds) {
-        this.fillWorldsFromRawModel(geppettoModel, jsonModel);
-      }
-
-      if (jsonModel.tags) {
-        this.geppettoModel.tags = jsonModel.tags.map(wr => wr.name);
-      }
-
-
-      // create libraries
-      for (var i = 0; i < jsonModel.libraries.length; i++) {
-        if (!jsonModel.libraries[i].synched) {
-          var library = this.createLibrary(jsonModel.libraries[i]);
-          library.parent = geppettoModel;
-          library.setTypes(this.createTypes(jsonModel.libraries[i].types, library));
-          geppettoModel.getLibraries().push(library);
-        }
-      }
-
-      // create datasources
-      geppettoModel.datasources = this.createDatasources(jsonModel.dataSources, geppettoModel);
-
-      // create top level queries (potentially cross-datasource)
-      geppettoModel.queries = this.createQueries(jsonModel.queries, geppettoModel);
-
-      if (populateRefs) {
-        // traverse everything and build shortcuts to children if composite --> containment == true
-        this.populateChildrenShortcuts(geppettoModel);
-
-        // traverse everything and populate type references in variables
-        this.populateTypeReferences(geppettoModel);
-
-        if (geppettoModel.getCurrentWorld()) {
-          this.populateInstanceReferences(geppettoModel);
-          // Add instances from the default world to allPaths
-          let staticInstancesPaths = this._getStaticInstancePaths(geppettoModel);
-          this.allPaths = this.allPaths.concat(staticInstancesPaths);
-          this.allPathsIndexing = this.allPathsIndexing.concat(staticInstancesPaths);
-        }
-      }
-
+    if (rawModel.tags) {
+      geppettoModel.tags = rawModel.tags.map(wr => wr.name);
     }
+
+    geppettoModel.libraries = rawModel.libraries.filter(lib => !lib.synched).map(lib => ModelFactory.createLibrary(lib, geppettoModel));
+
+
+    // create datasources
+    geppettoModel.datasources = ModelFactory.createDatasources(rawModel.dataSources, geppettoModel);
+
+    // create top level queries (potentially cross-datasource)
+    geppettoModel.queries = ModelFactory.createQueries(rawModel.queries, geppettoModel);
+
+    if (populateRefs) {
+      // traverse everything and build shortcuts to children if composite --> containment === true
+      ModelUtils.populateChildrenShortcuts(geppettoModel);
+
+      // traverse everything and populate type references in variables
+      geppettoModel.populateTypeReferences();
+
+      if (geppettoModel.getCurrentWorld()) {
+        geppettoModel.getCurrentWorld().populateInstanceReferences();
+        // Add instances from the default world to allPaths
+        let staticInstancesPaths = ModelFactory._getStaticInstancePaths(geppettoModel);
+        geppettoModel.allPaths = geppettoModel.allPaths.concat(staticInstancesPaths);
+        geppettoModel.allPathsIndexing = geppettoModel.allPathsIndexing.concat(staticInstancesPaths);
+      }
+    }
+
 
     return geppettoModel;
   }
 
-  createWorld(world) {
-    const w = new World(world, this.createStaticInstances(world.instances));
-    w.parent = this.geppettoModel;
-    w.variables = this.createVariables(world.variables, w);
+  static createInstances (geppettoModel) {
+    return InstanceFactory.createInstances(geppettoModel);
+  }
+
+  static createWorld (world, geppettoModel) {
+    const w = new World(world, geppettoModel);
     return w;
   }
 
-  createStaticInstances(instances) {
-    return instances ? instances.map(instance => this.createStaticInstance(instance)) : [];
-  }
-
-
-  createStaticInstance(rawInstance) {
-    let instance;
-    switch (rawInstance.eClass) {
-      case Resources.SIMPLE_INSTANCE_NODE:
-        instance = new SimpleInstance(rawInstance);
-        break;
-      case Resources.SIMPLE_CONNECTION_INSTANCE_NODE:
-        instance = new SimpleConnectionInstance(rawInstance);
-        break;
-      default:
-        throw instance.eClass + " instance type is not supported"
-    }
-    if (instance.value) {
-      instance.value = this.createValue(rawInstance, { wrappedObj: rawInstance.value });
-    } else {
-      console.error("Instance", instance, "has no value defined");
-    }
-
-    return instance;
-  }
-
-  /**
-   * Populate shortcuts of children onto parents
-   */
-  populateChildrenShortcuts(node) {
-    // check if getChildren exists, if so add shortcuts based on ids and recurse on each
-    if (typeof node.getChildren === "function") {
-      var children = node.getChildren();
-
-      if (children != undefined) {
-        for (var i = 0; i < children.length; i++) {
-          // do not populate shortcuts for array instances - children are accessed as array elements
-          if (node instanceof Variable && children[i] instanceof Type) {
-            // it's an anonymous type we don't want it to be in the path
-            this.populateChildrenShortcuts(children[i]);
-
-            var grandChildren = children[i].getChildren();
-            for (var j = 0; j < grandChildren.length; j++) {
-              node[grandChildren[j].getId()] = grandChildren[j];
-            }
-
-            continue;
-          }
-          if (node.getMetaType() != Resources.ARRAY_INSTANCE_NODE) {
-            node[children[i].getId()] = children[i];
-          }
-
-          this.populateChildrenShortcuts(children[i]);
-        }
-      }
-    }
-  }
-
-  populateInstanceReferences(geppettoModel) {
-    if (!geppettoModel.getWorlds().length) {
-      return;
-    }
-
-    for (let world of geppettoModel.getWorlds()) {
-      for (let instance of world.getInstances()) {
-        if (instance instanceof SimpleConnectionInstance) {
-          this.populateConnections(instance);
-        }
-      }
-    }
-  }
-
-  /**
-   * Populate type references
-   */
-  populateTypeReferences(node) {
-
-    // check if variable, if so populate type references
-    if (node.getMetaType() == Resources.VARIABLE_NODE) {
-      var types = node.getTypes();
-      var referencedTypes = [];
-      var hasPointerType = false;
-      var swapTypes = true;
-
-      if (types != undefined) {
-        for (var i = 0; i < types.length; i++) {
-          // check if references are already populated
-          if (types[i] instanceof Type) {
-            swapTypes = false;
-            break;
-          }
-
-          // get reference string - looks like this --> '//@libraries.1/@types.5';
-          var refStr = types[i].$ref;
-
-          // if it's anonymous there's no reference
-          if (refStr != undefined) {
-            // go grab correct type from Geppetto Model
-            var typeObj = this.resolve(refStr);
-
-            // track if we have pointer type
-            if (typeObj.getMetaType() == Resources.POINTER_TYPE) {
-              hasPointerType = true;
-            }
-
-            // add to list
-            referencedTypes.push(typeObj);
-          }
-        }
-
-        if (swapTypes) {
-          // set types to actual object references using backbone setter
-          node.setTypes(referencedTypes);
-        }
-      }
-
-      // check if pointer type
-      if (hasPointerType) {
-        var initialValues = node.getInitialValues();
-
-        if (initialValues != undefined && initialValues.length == 1) {
-          // go to initial values and parse pointer into Pointer with its PointerElements
-          var val = initialValues[0];
-          var pointer = this.createPointer(val.value);
-          // populate pointerValue on variable
-          node.pointerValue = pointer;
-        } else {
-          throw ("The variable " + node.getId() + " does not have initial values. Initial values expected.");
-        }
-      }
-
-      // add capabilities to variables
-      var resolvedTypes = node.getTypes();
-      for (var j = 0; j < resolvedTypes.length; j++) {
-        if (resolvedTypes[j].getMetaType() == Resources.PARAMETER_TYPE) {
-          // if a variable has a Parameter type, add AParameterCapability to the variable
-          node.extendApi(AParameterCapability);
-        } else if (resolvedTypes[j].getMetaType() == Resources.CONNECTION_TYPE) {
-          // if a variable has a connection type, add connection capability
-          node.extendApi(AConnectionCapability);
-          this.resolveConnectionValues(node);
-        }
-      }
-    } else if (!(node instanceof ArrayType) && (node instanceof Type || node instanceof CompositeType)) {
-      // take visual type string - looks like this --> '//@libraries.1/@types.5'
-      var vizType = node.getVisualType();
-
-      if (vizType != undefined) {
-        // replace with reference to actual type
-        var typeObj = this.resolve(vizType.$ref);
-        node.visualType = typeObj;
-      }
-
-      // resolve super type
-      var superType = node.getSuperType();
-      if (superType != undefined) {
-        var typeObjs = [];
-
-        // convert to array if single element
-        if (!(superType instanceof Array)) {
-          superType = [superType];
-        }
-
-        for (var a = 0; a < superType.length; a++) {
-          if (superType[a].$ref) {
-            // replace with reference to actual type
-            typeObjs.push(this.resolve(superType[a].$ref));
-          } else {
-            // replace with reference to actual type
-            typeObjs.push(superType[a]);
-          }
-        }
-
-        node.superType = typeObjs;
-      }
-    } else if (node instanceof ArrayType) {
-      // take array type string - looks like this --> '//@libraries.1/@types.5'
-      var arrayType = node.getType();
-
-      if (arrayType != undefined) {
-        var typeObj = this.resolve(arrayType.$ref);
-        node.type = typeObj;
-      }
-
-      // resolve super type
-      var superType = node.getSuperType();
-      if (superType != undefined) {
-        var typeObjs = [];
-
-        // convert to array if single element
-        if (!(superType instanceof Array)) {
-          superType = [superType];
-        }
-
-        for (var a = 0; a < superType.length; a++) {
-          if (superType[a].$ref) {
-            // replace with reference to actual type
-            typeObjs.push(this.resolve(superType[a].$ref));
-          } else {
-            // replace with reference to actual type
-            typeObjs.push(superType[a]);
-          }
-        }
-
-        node.superType = typeObjs;
-      }
-    } else if (node.getMetaType() === Resources.SIMPLE_INSTANCE_NODE || node.getMetaType() === Resources.SIMPLE_CONNECTION_INSTANCE_NODE) {
-      node.type = this.resolve(node.getType().$ref);
-    }
-
-    // check if getChildren exists, if so recurse over children
-    if (typeof node.getChildren === "function") {
-      var children = node.getChildren();
-
-      if (children != undefined) {
-        for (var i = 0; i < children.length; i++) {
-          this.populateTypeReferences(children[i]);
-        }
-      }
-    }
-  }
 
   /**
    * Creates pointer given a pointer in raw json format
    */
-  createPointer(jsonPointer) {
+  createPointer (jsonPointer) {
 
     // get raw pointer elements
     var rawElements = jsonPointer.elements;
@@ -385,7 +124,10 @@ class ModelFactory {
     }
 
     // create pointer object setting elements
-    var pointer = new Pointer({ "wrappedObj": jsonPointer, "elements": pointerElements });
+    var pointer = new Pointer({
+      "wrappedObj": jsonPointer,
+      "elements": pointerElements
+    });
 
     return pointer;
   }
@@ -393,9 +135,9 @@ class ModelFactory {
   /**
    * Creates pointer given a pointer in raw json format
    */
-  createPointerElement(jsonPointerElement) {
-    var variable = this.resolve(jsonPointerElement.variable.$ref);
-    var type = this.resolve(jsonPointerElement.type.$ref);
+  createPointerElement (jsonPointerElement) {
+    var variable = this.geppettoModel.resolve(jsonPointerElement.variable.$ref);
+    var type = this.geppettoModel.resolve(jsonPointerElement.type.$ref);
     var index = jsonPointerElement.index;
 
     // create pointer object setting elements
@@ -412,12 +154,12 @@ class ModelFactory {
   /**
    * Creates datasources starting from an array of datasources in the json model format
    */
-  createDatasources(jsonDataSources, parent) {
+  static createDatasources (jsonDataSources, parent) {
     var dataSources = [];
 
-    if (jsonDataSources != undefined) {
+    if (jsonDataSources !== undefined) {
       for (var i = 0; i < jsonDataSources.length; i++) {
-        var ds = this.createDatasource(jsonDataSources[i]);
+        var ds = ModelFactory.createDatasource(jsonDataSources[i], parent);
         ds.parent = parent;
 
         dataSources.push(ds);
@@ -430,246 +172,67 @@ class ModelFactory {
   /**
    * Creates variables starting from an array of variables in the json model format
    */
-  createVariables(jsonVariables, parent) {
-    var variables = [];
+  static createVariables (jsonVariables, parent) {
+    return jsonVariables.filter(rawVariable => !rawVariable.synched).map(rawVariable => ModelFactory.createVariable(rawVariable, parent));
 
-    if (jsonVariables != undefined) {
-      for (var i = 0; i < jsonVariables.length; i++) {
-        if (!jsonVariables[i].synched) {
-          var variable = this.createVariable(jsonVariables[i]);
-          variable.parent = parent;
-
-          // check if it has an anonymous type
-          if (jsonVariables[i].anonymousTypes != undefined) {
-            variable.anonymousTypes = this.createTypes(jsonVariables[i].anonymousTypes, variable);
-          }
-
-          variables.push(variable);
-        }
-      }
-    }
-
-    return variables;
   }
 
   /**
    * Creates type objects starting from an array of types in the json model format
    */
-  createTypes(jsonTypes, parent) {
+  static createTypes (jsonTypes, library) {
     var types = [];
 
-    if (jsonTypes != undefined) {
-      for (var i = 0; i < jsonTypes.length; i++) {
-        if (!jsonTypes[i].synched) {
-          var type = null;
-
-          // check if it's composite type, visual type, array type or simple type
-          if (jsonTypes[i].eClass == 'CompositeType' || jsonTypes[i].eClass == 'ConnectionType') {
-            type = this.createCompositeType(jsonTypes[i]);
-          } else if (jsonTypes[i].eClass == 'CompositeVisualType') {
-            type = this.createCompositeVisualType(jsonTypes[i]);
-            // inject visual capability to all CompositeVisualType
-            type.extendApi(AVisualCapability);
-          } else if (jsonTypes[i].eClass == 'ImportType') {
-            type = this.createImportType(jsonTypes[i], null);
-            // we store the index of the importType to speed up swapping procedures
-            type._index = i;
-          } else if (jsonTypes[i].eClass == 'ArrayType') {
-            type = this.createArrayType(jsonTypes[i]);
-          } else {
-            type = this.createType(jsonTypes[i]);
-            // inject visual capability if MetaType == VisualType
-            if (type.getMetaType() == Resources.VISUAL_TYPE_NODE) {
-              type.extendApi(AVisualCapability);
-            }
-          }
-
-          // if getVisualType != null also inject visual capability
-          if (type.getVisualType() != undefined) {
-            type.extendApi(AVisualCapability);
-          }
-
-          // set parent
-          type.parent = parent;
-
-          types.push(type);
-          this.newObjectCreated(type);
+    if (!jsonTypes) {
+      return [];
+    }
+    return jsonTypes.filter(rawType => !rawType.synched).map((rawType, i) => {
+      // check if it's composite type, visual type, array type or simple type
+      let type;
+      switch (rawType.eClass) {
+      case 'CompositeType':
+      case 'ConnectionType': {
+        type = ModelFactory.createCompositeType(rawType, library);
+        break;
+      }
+      case 'CompositeVisualType': {
+        type = ModelFactory.createCompositeVisualType(rawType, library);
+        // inject visual capability to all CompositeVisualType
+        type.extendApi(AVisualCapability);
+        break;
+      }
+      case 'ImportType': {
+        type = ModelFactory.createImportType(rawType, library);
+        // we store the index of the importType to speed up swapping procedures
+        type._index = i;
+        break;
+      }
+      case 'ArrayType': {
+        type = ModelFactory.createArrayType(rawType, library);
+        break;
+      }
+      default: {
+        type = ModelFactory.createType(rawType, library);
+        // inject visual capability if MetaType === VisualType
+        if (type.getMetaType() === Resources.VISUAL_TYPE_NODE) {
+          type.extendApi(AVisualCapability);
         }
       }
-    }
+      }
 
-    return types;
+      // if getVisualType !== null also inject visual capability
+      if (type.getVisualType() !== undefined) {
+        type.extendApi(AVisualCapability);
+      }
+      return type;
+
+    });
   }
 
-  newObjectCreated(obj) {
+  newObjectCreated (obj) {
     this.createTagsCallback(obj.getInstancePath ? obj.getInstancePath() : obj.getPath(), extractMethodsFromObject(obj, true));
   }
 
-  createInstances(geppettoModel) {
-    const instances = new Instances(geppettoModel, this);
-    this.instances = instances;
-    return instances;
-  }
-
-  /**
-   * Creates and populates initial instance tree skeleton with any instance that needs to be visualized
-   */
-  instantiateVariables(geppettoModel) {
-
-    var instances = [];
-
-    // pre-populate instance tags for console suggestions
-    this.populateInstanceTags();
-
-    // we need to explode instances for variables with visual types
-    var varsWithVizTypes = [];
-
-    // we need to fetch all potential instance paths (even for not exploded instances)
-    var allPotentialInstancePaths = [];
-    var allPotentialInstancePathsForIndexing = [];
-
-    // builds list of vars with visual types and connection types - start traversing from top level variables
-    var vars = geppettoModel.getAllVariables();
-    for (var i = 0; i < vars.length; i++) {
-      this.fetchVarsWithVisualTypes(vars[i], varsWithVizTypes, '');
-      this.fetchAllPotentialInstancePaths(vars[i], allPotentialInstancePaths, allPotentialInstancePathsForIndexing, '');
-    }
-
-    this.allPaths = this.allPaths.concat(allPotentialInstancePaths);
-    this.allPathsIndexing = allPotentialInstancePathsForIndexing;
-    var varsToInstantiate = varsWithVizTypes;
-
-    // based on list, traverse again and build instance objects
-    for (var j = 0; j < varsToInstantiate.length; j++) {
-      this.buildInstanceHierarchy(varsToInstantiate[j], null, geppettoModel, instances);
-    }
-
-    // set instances to internal cache of the factory
-    this.instances = instances;
-
-    // populate shortcuts / populate connection references
-    for (var k = 0; k < instances.length; k++) {
-      this.populateChildrenShortcuts(instances[k]);
-      this.populateConnections(instances[k]);
-    }
-
-    return instances;
-  }
-
-  /**
-   * Checks if new instances need to be created
-   *
-   * @param diffReport - lists variables and types that we need to check instances for
-   */
-  createInstancesFromDiffReport(diffReport, previousInstances=window.Instances) {
-    // get initial instance count (used to figure out if we added instances at the end)
-
-    var newInstancePaths = [];
-
-    /*
-     * shortcut function to get potential instance paths given a set types
-     * NOTE: defined as a nested function to avoid polluting the visible API of ModelFactory
-     */
-    var that = this;
-    var getPotentialInstancePaths = function (types) {
-      var paths = [];
-
-      for (var l = 0; l < types.length; l++) {
-        if (types[l].hasCapability(Resources.VISUAL_CAPABILITY)) {
-          // get potential instances with that type
-          paths = paths.concat(that.getAllPotentialInstancesOfType(types[l].getPath()));
-        }
-      }
-      return paths;
-    };
-
-    // STEP 1: check new variables to see if any new instances are needed
-    var varsWithVizTypes = [];
-    const variables = this.getVariables(diffReport);
-    for (var i = 0; i < variables; i++) {
-      this.fetchVarsWithVisualTypes(variables, varsWithVizTypes, '');
-    }
-    // for each variable, get types and potential instances of those types
-    for (var j = 0; j < varsWithVizTypes.length; j++) {
-      // var must exist since we just fetched it from the geppettoModel
-      var variable = eval(varsWithVizTypes[j]);
-      var varTypes = variable.getTypes();
-      newInstancePaths = newInstancePaths.concat(getPotentialInstancePaths(varTypes));
-    }
-
-    // STEP 2: check types and create new instances if need be
-    var diffTypes = diffReport.types;
-    newInstancePaths = newInstancePaths.concat(getPotentialInstancePaths(diffTypes));
-
-    // STEP 3: call getInstance to create the instances
-    var newInstances = previousInstances.getInstance(newInstancePaths);
-
-    if(diffReport.worlds.length > 0) {
-      const newSimpleInstances = diffReport.worlds[0].instances;
-      newInstances = newInstances.concat(newSimpleInstances);
-      newInstancePaths = newInstancePaths.concat(newSimpleInstances.map(si => si.getPath()));
-    }
-
-    // STEP 5: If instances were added, re-populate shortcuts
-    for (var k = 0; k < newInstances.length; k++) {
-      this.populateChildrenShortcuts(newInstances[k]);
-    }
-
-
-    for (var k = 0; k < previousInstances.length; k++) {
-      this.populateConnections(previousInstances[k]);
-    }
-    previousInstances.addInstances(newInstances);
-    return newInstances;
-  }
-
-  /**
-   * Populate connections
-   */
-  populateConnections(instance) {
-    // check if it's a connection
-    if (instance.getMetaType() === Resources.SIMPLE_CONNECTION_INSTANCE_NODE) {
-      if (instance.a.$ref == undefined) {
-        // Already populated
-        return;
-      }
-
-      const a = this.resolve(instance.a.$ref);
-      if (a) {
-        instance.a = a;
-        instance.a.addConnection(instance);
-      }
-
-      const b = this.resolve(instance.b.$ref);
-      if (b) {
-        instance.b = b;
-        instance.b.addConnection(instance);
-      }
-
-      // TODO this is a shortcut to add connections, verify it's equivalent
-
-
-      return;
-    }
-
-    {
-      if (instance.getType().getMetaType() == Resources.CONNECTION_TYPE) {
-        // do the bit of bidness
-        this.resolveConnectionValues(instance);
-      }
-    }
-
-    // check if getChildren exists, if so add shortcuts based on ids and recurse on each
-    if (typeof instance.getChildren === "function") {
-      var children = instance.getChildren();
-      if (children != undefined) {
-        for (var i = 0; i < children.length; i++) {
-          // recurse like no tomorrow
-          this.populateConnections(children[i]);
-        }
-      }
-    }
-  }
 
   /**
    * Merge Geppetto model parameter into existing Geppetto model
@@ -677,15 +240,20 @@ class ModelFactory {
    * @param rawModel - raw model to be merged, by deault only adds new vars / libs / types
    * @param overrideTypes - bool, mergeModel overrides type
    */
-  mergeModel(rawModel, overrideTypes) {
-    if (overrideTypes == undefined) {
+  static mergeModel (rawModel, overrideTypes) {
+    if (overrideTypes === undefined) {
       overrideTypes = false;
     }
 
     this.newPathsIndexing = [];
 
     // diff object to report back what changed / has been added
-    var diffReport = { variables: [], types: [], libraries: [], worlds: [] };
+    var diffReport = {
+      variables: [],
+      types: [],
+      libraries: [],
+      worlds: []
+    };
 
     // STEP 1: create new geppetto model to merge into existing one
     var diffModel = this.createGeppettoModel(rawModel, false, false);
@@ -695,7 +263,7 @@ class ModelFactory {
     var libs = this.geppettoModel.getLibraries();
 
     for (var i = 0; i < diffLibs.length; i++) {
-      if (diffLibs[i].getWrappedObj().synched == true) {
+      if (diffLibs[i].getWrappedObj().synched === true) {
         // if synch placeholder lib, skip it
         continue;
       }
@@ -704,7 +272,7 @@ class ModelFactory {
 
       for (var j = 0; j < libs.length; j++) {
         // if the library exists, go in and check for types diff
-        if (diffLibs[i].getPath() == libs[j].getPath()) {
+        if (diffLibs[i].getPath() === libs[j].getPath()) {
           libMatch = true;
 
           var diffTypes = diffLibs[i].getTypes();
@@ -721,7 +289,7 @@ class ModelFactory {
           var importTypeMatched = [];
 
           for (var k = 0; k < diffTypes.length; k++) {
-            if (diffTypes[k].getWrappedObj().synched == true) {
+            if (diffTypes[k].getWrappedObj().synched === true) {
               // if synch placeholder type, skip it
               continue;
             }
@@ -730,7 +298,7 @@ class ModelFactory {
 
             for (var m = 0; m < existingTypes.length; m++) {
               // check if the given diff type already exists
-              if (diffTypes[k].getPath() == existingTypes[m].getPath()) {
+              if (diffTypes[k].getPath() === existingTypes[m].getPath()) {
                 typeMatch = true;
                 typeMatched.push(diffTypes[k]);
                 importTypeMatched.push(existingTypes[m]);
@@ -741,7 +309,7 @@ class ModelFactory {
             // if the type doesn't exist, append it to the library
             if (!typeMatch) {
               // add to list of types on raw library object
-              if (libs[j].getWrappedObj().types == undefined) {
+              if (libs[j].getWrappedObj().types === undefined) {
                 libs[j].getWrappedObj().types = [];
               }
 
@@ -820,7 +388,7 @@ class ModelFactory {
 
       // if the library doesn't exist yet, append it to the model with everything that's in it
       if (!libMatch) {
-        if (this.geppettoModel.getWrappedObj().libraries == undefined) {
+        if (this.geppettoModel.getWrappedObj().libraries === undefined) {
           this.geppettoModel.getWrappedObj().libraries = [];
         }
 
@@ -850,9 +418,13 @@ class ModelFactory {
     const currentWorld = this.geppettoModel.getCurrentWorld();
     // STEP 3b: merge world.variables and instances
     if (currentWorld) {
-      this.populateInstanceReferences(diffModel);
+      currentWorld.populateInstanceReferences(diffModel); // TODO
       diffVars = diffModel.getCurrentWorld().getVariables();
-      diffReport.worlds = rawModel.worlds.map(world => ({ ...world, variables: [], instances: [] }))
+      diffReport.worlds = rawModel.worlds.map(world => ({
+        ...world,
+        variables: [],
+        instances: []
+      }));
 
       // TODO handle multiple worlds
       diffReport.worlds[0].variables = diffReport.worlds[0].variables.concat(
@@ -863,30 +435,30 @@ class ModelFactory {
       diffReport.worlds[0].instances = this._mergeSimpleInstances(
         diffModel.getCurrentWorld().getInstances(),
         currentWorld);
-      this.instances.addInstances
+      InstanceFactory.addInstances(diffReport.worlds[0].instances);
       this.populateInstanceReferences(diffModel);
     }
 
     return diffReport;
   }
 
-  _mergeVariables(diffVars, parent) {
+  _mergeVariables (diffVars, parent) {
     const currentModelVars = parent.getVariables(true);
     const wrappedObj = parent.wrappedObj;
     const diffReportVars = [];
 
     for (var x = 0; x < diffVars.length; x++) {
-      if (diffVars[x].getWrappedObj().synched == true) {
+      if (diffVars[x].getWrappedObj().synched === true) {
         // if synch placeholder var, skip it
         continue;
       }
 
-      var match = currentModelVars.find(currModelVar => diffVars[x].getPath() == currModelVar.getPath());
+      var match = currentModelVars.find(currModelVar => diffVars[x].getPath() === currModelVar.getPath());
 
       // if no match, add it, it's actually new
       if (!match) {
 
-        if (wrappedObj.variables == undefined) {
+        if (wrappedObj.variables === undefined) {
           wrappedObj.variables = [];
         }
 
@@ -915,28 +487,28 @@ class ModelFactory {
   }
 
   /**
-   * Merge simple instances 
+   * Merge simple instances
    * @param {*} diffInst wrapped instance objects to be added
    * @param {*} diffReportInst diff report list to be filled
    * @param {World} parent - parent container: the world in which the instances are defined
    */
-  _mergeSimpleInstances(diffInst, parent) {
+  _mergeSimpleInstances (diffInst, parent) {
     const currentModelInst = parent.getInstances();
     const wrappedObj = parent.wrappedObj;
     const diffReportInst = [];
 
     for (var x = 0; x < diffInst.length; x++) {
-      if (diffInst[x].getWrappedObj().synched == true) {
+      if (diffInst[x].getWrappedObj().synched === true) {
         // if synch placeholder var, skip it
         continue;
       }
 
-      var match = currentModelInst.find(currModelVar => diffInst[x].getPath() == currModelVar.getPath());
+      var match = currentModelInst.find(currModelVar => diffInst[x].getPath() === currModelVar.getPath());
 
       // if no match, add it, it's actually new
       if (!match) {
 
-        if (wrappedObj.instances == undefined) {
+        if (wrappedObj.instances === undefined) {
           wrappedObj.instances = [];
         }
 
@@ -966,15 +538,20 @@ class ModelFactory {
     return diffReportInst;
   }
 
-  mergeValue(rawModel, overrideTypes) {
-    if (overrideTypes == undefined) {
+  mergeValue (rawModel, overrideTypes) {
+    if (overrideTypes === undefined) {
       overrideTypes = false;
     }
 
     this.newPathsIndexing = [];
 
     // diff object to report back what changed / has been added
-    var diffReport = { variables: [], types: [], libraries: [], worlds: [] };
+    var diffReport = {
+      variables: [],
+      types: [],
+      libraries: [],
+      worlds: []
+    };
     var diffVars = diffReport.variables;
 
 
@@ -998,11 +575,11 @@ class ModelFactory {
     var libMatch = false;
     var i = 0, j = 0;
     for (i = 0; i < diffLibs.length; i++) {
-      if (diffLibs[i].getWrappedObj().synched == true) {
+      if (diffLibs[i].getWrappedObj().synched === true) {
         continue;
       }
       for (j = 0; j < libs.length; j++) {
-        if (diffLibs[i].getPath() == libs[j].getPath()) {
+        if (diffLibs[i].getPath() === libs[j].getPath()) {
           libMatch = true;
           break;
         }
@@ -1017,11 +594,11 @@ class ModelFactory {
     var typeMatch = false;
     var k = 0, m = 0;
     for (k = 0; k < diffTypes.length; k++) {
-      if (diffTypes[k].getWrappedObj().synched == true) {
+      if (diffTypes[k].getWrappedObj().synched === true) {
         continue;
       }
       for (m = 0; m < existingTypes.length; m++) {
-        if (diffTypes[k].getPath() == existingTypes[m].getPath()) {
+        if (diffTypes[k].getPath() === existingTypes[m].getPath()) {
           typeMatch = true;
           break;
         }
@@ -1035,11 +612,11 @@ class ModelFactory {
     var vars = existingTypes[m].getVariables();
     var varMatch = false;
     for (var x = 0; x < diffVars.length; x++) {
-      if (diffVars[x].getWrappedObj().synched == true) {
+      if (diffVars[x].getWrappedObj().synched === true) {
         continue;
       }
       for (var y = 0; y < vars.length; y++) {
-        if (diffVars[x].getPath() == vars[y].getPath()) {
+        if (diffVars[x].getPath() === vars[y].getPath()) {
           varMatch = true;
           this.populateTypeReferences(diffVars[x]);
           vars[y] = diffVars[x];
@@ -1059,7 +636,7 @@ class ModelFactory {
    *
    * @param variables
    */
-  updateCapabilities(variables) {
+  updateCapabilities (variables) {
     // some bit of code encapsulated for private re-use
     var that = this;
     var updateInstancesCapabilities = function (instances) {
@@ -1067,7 +644,7 @@ class ModelFactory {
         // check if visual type and inject AVisualCapability
         var visualType = instances[j].getVisualType();
         // check if visual type and inject AVisualCapability
-        if ((!(visualType instanceof Array) && visualType != null && visualType != undefined)
+        if ((!(visualType instanceof Array) && visualType !== null && visualType !== undefined)
           || (visualType instanceof Array && visualType.length > 0)) {
 
           if (!instances[j].hasCapability(Resources.VISUAL_CAPABILITY)) {
@@ -1080,7 +657,7 @@ class ModelFactory {
 
             // check if it has visual groups - if so add visual group capability
             if ((typeof visualType.getVisualGroups === "function")
-              && visualType.getVisualGroups() != null
+              && visualType.getVisualGroups() !== null
               && visualType.getVisualGroups().length > 0) {
               instances[j].extendApi(AVisualGroupCapability);
               instances[j].setVisualGroups(visualType.getVisualGroups());
@@ -1091,26 +668,26 @@ class ModelFactory {
         }
 
         // check if it has connections and inject AConnectionCapability
-        if (instances[j].getType().getMetaType() == Resources.CONNECTION_TYPE) {
+        if (instances[j].getType().getMetaType() === Resources.CONNECTION_TYPE) {
           if (!instances[j].hasCapability(Resources.CONNECTION_CAPABILITY)) {
             instances[j].extendApi(AConnectionCapability);
             that.resolveConnectionValues(instances[j]);
           }
         }
 
-        if (instances[j].getType().getMetaType() == Resources.STATE_VARIABLE_TYPE) {
+        if (instances[j].getType().getMetaType() === Resources.STATE_VARIABLE_TYPE) {
           if (!instances[j].hasCapability(Resources.STATE_VARIABLE_CAPABILITY)) {
             instances[j].extendApi(AStateVariableCapability);
           }
         }
 
-        if (instances[j].getType().getMetaType() == Resources.DERIVED_STATE_VARIABLE_TYPE) {
+        if (instances[j].getType().getMetaType() === Resources.DERIVED_STATE_VARIABLE_TYPE) {
           if (!instances[j].hasCapability(Resources.DERIVED_STATE_VARIABLE_CAPABILITY)) {
             instances[j].extendApi(ADerivedStateVariableCapability);
           }
         }
 
-        if (instances[j].getType().getMetaType() == Resources.PARAMETER_TYPE) {
+        if (instances[j].getType().getMetaType() === Resources.PARAMETER_TYPE) {
           if (!instances[j].hasCapability(Resources.PARAMETER_CAPABILITY)) {
             instances[j].extendApi(AParameterCapability);
           }
@@ -1126,12 +703,12 @@ class ModelFactory {
     for (var i = 0; i < variables.length; i++) {
       var resolvedTypes = variables[i].getTypes();
       for (var j = 0; j < resolvedTypes.length; j++) {
-        if (resolvedTypes[j].getMetaType() == Resources.PARAMETER_TYPE) {
+        if (resolvedTypes[j].getMetaType() === Resources.PARAMETER_TYPE) {
           // if a variable has a Parameter type, add AParameterCapability to the variable
           if (!variables[i].hasCapability(Resources.PARAMETER_CAPABILITY)) {
             variables[i].extendApi(AParameterCapability);
           }
-        } else if (resolvedTypes[j].getMetaType() == Resources.CONNECTION_TYPE) {
+        } else if (resolvedTypes[j].getMetaType() === Resources.CONNECTION_TYPE) {
           // if a variable has a connection type, add connection capability
           if (!variables[i].hasCapability(Resources.CONNECTION_CAPABILITY)) {
             variables[i].extendApi(AConnectionCapability);
@@ -1143,7 +720,7 @@ class ModelFactory {
 
       // update instances capabilities
       updateInstancesCapabilities(varInstances);
-      if (variables[i] != null || undefined) {
+      if (variables[i] !== null || undefined) {
         this.newObjectCreated(variables[i]);
       }
     }
@@ -1154,7 +731,7 @@ class ModelFactory {
    *
    * @param variables
    */
-  addPotentialInstancePaths(variables) {
+  addPotentialInstancePaths (variables) {
     var potentialInstancePaths = [];
     var potentialInstancePathsForIndexing = [];
 
@@ -1173,7 +750,7 @@ class ModelFactory {
    *
    * @param type
    */
-  addPotentialInstancePathsForTypeSwap(type) {
+  addPotentialInstancePathsForTypeSwap (type) {
 
     var typePath = type.getPath();
     // Get all paths for the new type
@@ -1254,7 +831,7 @@ class ModelFactory {
     // look for import type references and amend type
     for (var list of [this.allPaths, this.allPathsIndexing]) {
       for (var i = 0; i < list.length; ++i) {
-        if (list[i].type == typePath) {
+        if (list[i].type === typePath) {
           list[i].metaType = type.getMetaType();
         }
       }
@@ -1268,7 +845,7 @@ class ModelFactory {
    * @param typeToSwapOut
    * @param typeToSwapIn
    */
-  swapTypeInVariable(variable, typeToSwapOut, typeToSwapIn) {
+  swapTypeInVariable (variable, typeToSwapOut, typeToSwapIn) {
     // ugly but we need the actual arrays stored in the variable as we'll be altering them
     var types = variable.types;
     var anonTypes = variable.anonymousTypes;
@@ -1288,12 +865,12 @@ class ModelFactory {
    * @param typeToSwapOut
    * @param typeToSwapIn
    */
-  swapTypeInTypes(types, typeToSwapOut, typeToSwapIn) {
+  swapTypeInTypes (types, typeToSwapOut, typeToSwapIn) {
     for (var y = 0; y < types.length; y++) {
-      if (types[y].getMetaType() == typeToSwapOut.getMetaType() && types[y].getId() == typeToSwapOut.getId()) {
+      if (types[y].getMetaType() === typeToSwapOut.getMetaType() && types[y].getId() === typeToSwapOut.getId()) {
         // swap type referenced with the override one
         types[y] = typeToSwapIn;
-      } else if (types[y].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
+      } else if (types[y].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
         // if composite - recurse for each var
         var nestedVars = types[y].getVariables();
         for (var x = 0; x < nestedVars.length; x++) {
@@ -1303,328 +880,11 @@ class ModelFactory {
     }
   }
 
-  /**
-   * Adds instances to a list of existing instances. It will expand the instance tree if it partially exists or create it if doesn't.
-   * NOTE: instances will only be added if a matching variable can be found in the GeppettoModel
-   */
-  addInstances(newInstancesPaths, topInstances, geppettoModel) {
-    // based on list of new paths, expand instance tree
-    for (var j = 0; j < newInstancesPaths.length; j++) {
-      /*
-       * process instance paths and convert instance path syntax to raw id concatenation syntax
-       * e.g. acnet2.baskets_12[0].v --> acnet2.baskets_12.baskets_12[0].v
-       */
-      var idConcatPath = '';
-      var splitInstancePath = newInstancesPaths[j].split('.');
-      for (var i = 0; i < splitInstancePath.length; i++) {
-        if (splitInstancePath[i].indexOf('[') > -1) {
-          // contains array syntax = so grab array id
-          var arrayId = splitInstancePath[i].split('[')[0];
-          // replace brackets
-          var arrayElementId = splitInstancePath[i];
-
-          splitInstancePath[i] = arrayId + '.' + arrayElementId;
-        }
-
-        idConcatPath += (i != splitInstancePath.length - 1) ? (splitInstancePath[i] + '.') : splitInstancePath[i];
-      }
-      this.buildInstanceHierarchy(idConcatPath, null, geppettoModel, topInstances);
-    }
-
-    // populate shortcuts including new instances just created
-    for (var k = 0; k < topInstances.length; k++) {
-      this.populateChildrenShortcuts(topInstances[k]);
-
-      // populate at window level
-      // window[topInstances[k].getId()] = topInstances[k];
-      topInstances[topInstances[k].getId()] = topInstances[k];
-    }
-    // TODO Should we trigger that instances were added?
-  }
-
-  /**
-   * Build instance hierarchy
-   */
-  buildInstanceHierarchy(path, parentInstance, model, topLevelInstances) {
-    var variable = null;
-    var newlyCreatedInstance = null;
-    var newlyCreatedInstances = [];
-
-    // STEP 1: find matching first variable in path in the model object passed in
-    var varsIds = path.split('.');
-    // check model MetaType and find variable accordingly
-    if (model.getMetaType() == Resources.GEPPETTO_MODEL_NODE) {
-      var variables = model.getAllVariables();
-      for (var i = 0; i < variables.length; i++) {
-        if (varsIds[0] === variables[i].getId()) {
-          variable = variables[i];
-          break;
-        }
-      }
-    } else if (model.getMetaType() == Resources.VARIABLE_NODE) {
-      var allTypes = model.getTypes();
-
-      // if array, and the array type
-      if (allTypes.length == 1 && allTypes[0].getMetaType() == Resources.ARRAY_TYPE_NODE) {
-        allTypes.push(model.getTypes()[0].getType());
-      }
-
-      // get all variables and match it from there
-      for (var i = 0; i < allTypes.length; i++) {
-        if (allTypes[i].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-          var variables = allTypes[i].getVariables();
-
-          for (var m = 0; m < variables.length; m++) {
-            if (varsIds[0] === variables[m].getId()) {
-              variable = variables[m];
-              break;
-            }
-          }
-
-          // break outer loop too
-          if (variable != null) {
-            break;
-          }
-        }
-      }
-
-      // check if parent is an array - if so we know the variable cannot exist so set the same variable as the array
-      if (variable == null && parentInstance.getMetaType() == Resources.ARRAY_INSTANCE_NODE) {
-        // the variable associated to an array element is still the array variable
-        variable = model;
-      }
-    }
-
-    // STEP 2: create instance for given variable
-    if (variable != null) {
-
-      var types = variable.getTypes();
-      var arrayType = null;
-      for (var j = 0; j < types.length; j++) {
-        if (types[j].getMetaType() == Resources.ARRAY_TYPE_NODE) {
-          arrayType = types[j];
-          break;
-        }
-      }
-
-      // check in top level instances if we have an instance for the current variable already
-      var instancePath = (parentInstance != null) ? (parentInstance.getInstancePath() + '.' + varsIds[0]) : varsIds[0];
-      var matchingInstance = this.findMatchingInstance(instancePath, topLevelInstances);
-
-      if (matchingInstance != null) {
-        // there is a match, simply re-use that instance as the "newly created one" instead of creating a new one
-        newlyCreatedInstance = matchingInstance;
-      } else if (arrayType != null) {
-        // when array type, explode into multiple ('size') instances
-        var size = arrayType.getSize();
-
-        // create new ArrayInstance object, add children to it
-        var arrayOptions = {
-          id: variable.getId(),
-          name: variable.getName(),
-          _metaType: Resources.ARRAY_INSTANCE_NODE,
-          variable: variable,
-          size: size,
-          parent: parentInstance
-        };
-        var arrayInstance = this.createArrayInstance(arrayOptions);
-
-
-        for (var i = 0; i < size; i++) {
-          // create simple instance for this variable
-          var options = {
-            id: variable.getId() + '[' + i + ']',
-            name: variable.getName() + '[' + i + ']',
-            _metaType: Resources.ARRAY_ELEMENT_INSTANCE_NODE,
-            variable: variable,
-            children: [],
-            parent: arrayInstance,
-            index: i
-          };
-          var explodedInstance = this.createArrayElementInstance(options);
-
-          // check if visual type and inject AVisualCapability
-          var visualType = explodedInstance.getVisualType();
-          if ((!(visualType instanceof Array) && visualType != null && visualType != undefined)
-            || (visualType instanceof Array && visualType.length > 0)) {
-            explodedInstance.extendApi(AVisualCapability);
-            this.propagateCapabilityToParents(AVisualCapability, explodedInstance);
-
-            if (visualType instanceof Array && visualType.length > 1) {
-              throw ("Support for more than one visual type is not implemented.");
-            }
-
-            // check if it has visual groups - if so add visual group capability
-            if ((typeof visualType.getVisualGroups === "function")
-              && visualType.getVisualGroups() != null
-              && visualType.getVisualGroups().length > 0) {
-              explodedInstance.extendApi(AVisualGroupCapability);
-              explodedInstance.setVisualGroups(visualType.getVisualGroups());
-            }
-          }
-
-          // check if it has connections and inject AConnectionCapability
-          if (explodedInstance.getType().getMetaType() == Resources.CONNECTION_TYPE) {
-            explodedInstance.extendApi(AConnectionCapability);
-            this.resolveConnectionValues(explodedInstance);
-          }
-
-          if (explodedInstance.getType().getMetaType() == Resources.STATE_VARIABLE_TYPE) {
-            explodedInstance.extendApi(AStateVariableCapability);
-          }
-
-          if (explodedInstance.getType().getMetaType() == Resources.DERIVED_STATE_VARIABLE_TYPE) {
-            explodedInstance.extendApi(ADerivedStateVariableCapability);
-          }
-
-          if (explodedInstance.getType().getMetaType() == Resources.PARAMETER_TYPE) {
-            explodedInstance.extendApi(AParameterCapability);
-          }
-
-          // add to array instance (adding this way because we want to access as an array)
-          arrayInstance[i] = explodedInstance;
-
-          // ad to newly created instances list
-          newlyCreatedInstances.push(explodedInstance);
-
-          if (explodedInstance != null || undefined) {
-            this.newObjectCreated(explodedInstance);
-          }
-        }
-
-        //  if there is a parent add to children else add to top level instances
-        if (parentInstance != null && parentInstance != undefined) {
-          parentInstance.addChild(arrayInstance);
-        } else {
-          // NOTE: not sure if this can ever happen (top level instance == array)
-          topLevelInstances.push(arrayInstance);
-        }
-
-      } else if (!variable.isStatic()) {
-        // NOTE: only create instances if variable is NOT static
-
-        // create simple instance for this variable
-        var options = {
-          id: variable.getId(),
-          name: variable.getName(),
-          _metaType: Resources.INSTANCE_NODE,
-          variable: variable,
-          children: [],
-          parent: parentInstance
-        };
-        newlyCreatedInstance = this.createInstance(options);
-
-        // check if visual type and inject AVisualCapability
-        var visualType = newlyCreatedInstance.getVisualType();
-        // check if visual type and inject AVisualCapability
-        if ((!(visualType instanceof Array) && visualType != null && visualType != undefined)
-          || (visualType instanceof Array && visualType.length > 0)) {
-          newlyCreatedInstance.extendApi(AVisualCapability);
-          // particles can move, we store its state in the time series coming from the statevariablecapability
-          if (visualType.getId() == Resources.PARTICLES_TYPE) {
-            newlyCreatedInstance.extendApi(AParticlesCapability);
-          }
-          this.propagateCapabilityToParents(AVisualCapability, newlyCreatedInstance);
-
-          if (visualType instanceof Array && visualType.length > 1) {
-            throw ("Support for more than one visual type is not implemented.");
-          }
-
-          // check if it has visual groups - if so add visual group capability
-          if ((typeof visualType.getVisualGroups === "function")
-            && visualType.getVisualGroups() != null
-            && visualType.getVisualGroups().length > 0) {
-            newlyCreatedInstance.extendApi(AVisualGroupCapability);
-            newlyCreatedInstance.setVisualGroups(visualType.getVisualGroups());
-          }
-
-        }
-
-        // check if it has connections and inject AConnectionCapability
-        if (newlyCreatedInstance.getType().getMetaType() == Resources.CONNECTION_TYPE) {
-          newlyCreatedInstance.extendApi(AConnectionCapability);
-          this.resolveConnectionValues(newlyCreatedInstance);
-        }
-
-        if (newlyCreatedInstance.getType().getMetaType() == Resources.STATE_VARIABLE_TYPE) {
-          newlyCreatedInstance.extendApi(AStateVariableCapability);
-        }
-
-        if (newlyCreatedInstance.getType().getMetaType() == Resources.DERIVED_STATE_VARIABLE_TYPE) {
-          newlyCreatedInstance.extendApi(ADerivedStateVariableCapability);
-        }
-
-        if (newlyCreatedInstance.getType().getMetaType() == Resources.PARAMETER_TYPE) {
-          newlyCreatedInstance.extendApi(AParameterCapability);
-        }
-
-        //  if there is a parent add to children else add to top level instances
-        if (parentInstance != null && parentInstance != undefined) {
-          parentInstance.addChild(newlyCreatedInstance);
-        } else {
-          topLevelInstances.push(newlyCreatedInstance);
-        }
-
-        if (newlyCreatedInstance != null || undefined) {
-          this.newObjectCreated(newlyCreatedInstance);
-        }
-      }
-    }
-
-    // STEP: 3 recurse rest of path (without first / leftmost var)
-    var newPath = '';
-    for (var i = 0; i < varsIds.length; i++) {
-      if (i != 0) {
-        newPath += (i < (varsIds.length - 1)) ? (varsIds[i] + '.') : varsIds[i];
-      }
-    }
-
-    // if there is a parent instance - recurse with new parameters
-    if (newlyCreatedInstance != null && newPath != '') {
-      this.buildInstanceHierarchy(newPath, newlyCreatedInstance, variable, topLevelInstances);
-    }
-
-    // if there is a list of exploded instances recurse on each
-    if (newlyCreatedInstances.length > 0 && newPath != '') {
-      for (var x = 0; x < newlyCreatedInstances.length; x++) {
-        this.buildInstanceHierarchy(newPath, newlyCreatedInstances[x], variable, topLevelInstances);
-      }
-    }
-  }
-
-  /**
-   * Resolve connection values
-   */
-  resolveConnectionValues(connectionInstanceOrVariable) {
-
-    // get initial values
-    var initialValues = null;
-    if (connectionInstanceOrVariable instanceof Instance) {
-      initialValues = connectionInstanceOrVariable.getVariable().getWrappedObj().initialValues;
-    } else if (connectionInstanceOrVariable.getMetaType() == Resources.VARIABLE_NODE) {
-      initialValues = connectionInstanceOrVariable.getWrappedObj().initialValues;
-    }
-
-    // get pointer A and pointer B
-    var connectionValue = initialValues[0].value;
-    // resolve A and B to Pointer Objects
-    var pointerA = this.createPointer(connectionValue.a);
-    var pointerB = this.createPointer(connectionValue.b);
-
-    if (connectionInstanceOrVariable instanceof Instance) {
-      this.augmentPointer(pointerA, connectionInstanceOrVariable);
-      this.augmentPointer(pointerB, connectionInstanceOrVariable);
-    }
-
-    // set A and B on connection
-    connectionInstanceOrVariable.setA(pointerA);
-    connectionInstanceOrVariable.setB(pointerB);
-  }
 
   /**
    * Augment pointer with fully qualified chain to point to a specific instance
    */
-  augmentPointer(pointer, connectionInstance) {
+  augmentPointer (pointer, connectionInstance) {
     // find root for this branch
     var rootInstance = this.findRoot(connectionInstance);
 
@@ -1655,7 +915,7 @@ class ModelFactory {
    * Build Pointer elements chain
    *
    */
-  buildPointerElementsChain(path, instance, pointerElements, originalElement) {
+  buildPointerElementsChain (path, instance, pointerElements, originalElement) {
     var instanceIds = path.split('.');
 
     if (instance.getId() === instanceIds[0]) {
@@ -1676,13 +936,13 @@ class ModelFactory {
       // build new path
       var newPath = '';
       for (var i = 0; i < instanceIds.length; i++) {
-        if (i != 0) {
+        if (i !== 0) {
           newPath += (i < (instanceIds.length - 1)) ? (instanceIds[i] + '.') : instanceIds[i];
         }
       }
 
       // recurse
-      if (newPath != '') {
+      if (newPath !== '') {
         var children = instance.getChildren();
         for (var i = 0; i < children.length; i++) {
           this.buildPointerElementsChain(newPath, children[i], pointerElements, originalElement);
@@ -1692,223 +952,11 @@ class ModelFactory {
     // else do nothing, do not recurse on dead branches
   }
 
-  /**
-   * Find root instance
-   */
-  findRoot(instance) {
-    var matching = null;
-
-    var parent = instance.getParent();
-    if (parent == undefined || parent == null) {
-      matching = instance;
-    } else {
-      var recurseMatching = this.findRoot(parent);
-      if (recurseMatching != null) {
-        matching = recurseMatching;
-      }
-    }
-
-    return matching;
-  }
-
-  /**
-   * Propagates a capability to parents of the given instance
-   */
-  propagateCapabilityToParents(capability, instance) {
-    var parent = instance.getParent();
-
-    // check if it has capability
-    if (!(parent == undefined || parent == null) && !parent.hasCapability(capability.capabilityId)) {
-      // apply capability
-      parent.extendApi(capability);
-      this.newObjectCreated(parent);
-
-      this.propagateCapabilityToParents(capability, parent);
-    }
-
-    // else --> live & let die
-  }
-
-  /**
-   * Find instance(s) given variable id, if any
-   */
-  findMatchingInstanceByID(id, instances) {
-    var matching = null;
-
-    for (var i = 0; i < instances.length; i++) {
-      if (instances[i].getId() == id) {
-        matching = instances[i];
-        break;
-      } else {
-        if (typeof instances[i].getChildren === "function") {
-          var recurseMatch = this.findMatchingInstanceByID(id, instances[i].getChildren());
-          if (recurseMatch != null) {
-            matching = recurseMatch;
-            break;
-          }
-        }
-      }
-    }
-
-    return matching;
-  }
-
-  /**
-   * Find instance given instance path (unique), if any
-   */
-  findMatchingInstance(instancePath, instances) {
-    var matching = null;
-
-    for (var i = 0; i < instances.length; i++) {
-      if (instances[i].getRawInstancePath() == instancePath) {
-        matching = instances[i];
-        break;
-      } else {
-        if (typeof instances[i].getChildren === "function") {
-          var recurseMatch = this.findMatchingInstance(instancePath, instances[i].getChildren());
-          if (recurseMatch != null) {
-            matching = recurseMatch;
-            break;
-          }
-        }
-      }
-    }
-
-    return matching;
-  }
-
-  /**
-   * Find instance given Type
-   */
-  findMatchingInstancesByType(type, instances, matchingInstance) {
-    for (var i = 0; i < instances.length; i++) {
-      var types = instances[i].getTypes();
-      for (var j = 0; j < types.length; j++) {
-        if (types[j] === type || types[j].getVisualType() === type) {
-          matchingInstance.push(instances[i]);
-          break;
-        }
-      }
-
-      if (typeof instances[i].getChildren === "function") {
-        this.findMatchingInstancesByType(type, instances[i].getChildren(), matchingInstance);
-      }
-    }
-  }
-
-  /**
-   * Find instance given Variable
-   */
-  findMatchingInstancesByVariable(variable, instances, matchingInstance) {
-    for (var i = 0; i < instances.length; i++) {
-      if (instances[i].getVariable() === variable) {
-        matchingInstance.push(instances[i]);
-        break;
-      }
-
-      if (typeof instances[i].getChildren === "function") {
-        this.findMatchingInstancesByVariable(variable, instances[i].getChildren(), matchingInstance);
-      }
-    }
-  }
-
-  /**
-   * Build "list" of variables that have a visual type
-   */
-  fetchVarsWithVisualTypes(node, varsWithVizTypes, parentPath) {
-    /*
-     * build "list" of variables that have a visual type (store "path")
-     * check meta type - we are only interested in variables
-     */
-    var path = (parentPath == '') ? node.getId() : (parentPath + '.' + node.getId());
-    if (node.getMetaType() == Resources.VARIABLE_NODE) {
-      var allTypes = node.getTypes();
-      for (var i = 0; i < allTypes.length; i++) {
-        // if normal type or composite type check if it has a visual type
-        if (allTypes[i].getMetaType() == Resources.TYPE_NODE || allTypes[i].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-          var vizType = allTypes[i].getVisualType();
-
-          if (vizType != undefined && vizType != null) {
-            // ADD to list of vars with viz types
-            varsWithVizTypes.push(path);
-          }
-        } else if (allTypes[i].getMetaType() == Resources.ARRAY_TYPE_NODE) {
-          // if array type, need to check what type the array is of
-          var arrayType = allTypes[i].getType();
-          var vizType = arrayType.getVisualType();
-
-          if (vizType != undefined && vizType != null) {
-            // ADD to list of vars with viz types
-            varsWithVizTypes.push(path);
-          }
-        } else if ((allTypes[i].getMetaType() == Resources.VISUAL_TYPE_NODE) || (allTypes[i].getMetaType() == Resources.COMPOSITE_VISUAL_TYPE_NODE)) {
-          varsWithVizTypes.push(path);
-        }
-
-        // RECURSE on any variables inside composite types
-        if (allTypes[i].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-          var vars = allTypes[i].getVariables();
-
-          if (vars != undefined && vars != null) {
-            for (var j = 0; j < vars.length; j++) {
-              this.fetchVarsWithVisualTypes(vars[j], varsWithVizTypes, (parentPath == '') ? node.getId() : (parentPath + '.' + node.getId()));
-            }
-          }
-        } else if (allTypes[i].getMetaType() == Resources.ARRAY_TYPE_NODE) {
-          var arrayType = allTypes[i].getType();
-
-          // check if the array is of composite type and if so recurse too on contained variables
-          if (arrayType.getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-            var vars = arrayType.getVariables();
-
-            if (vars != undefined && vars != null) {
-              for (var j = 0; j < vars.length; j++) {
-                this.fetchVarsWithVisualTypes(vars[j], varsWithVizTypes, (parentPath == '') ? node.getId() : (parentPath + '.' + node.getId()));
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   *
-   * @param node
-   * @param path
-   * @returns {boolean}
-   */
-  includePotentialInstance(node, path) {
-    if (node.getType().getMetaType() == Resources.CONNECTION_TYPE) {
-      return false;
-    }
-
-    if (node.getType().getMetaType() == Resources.TEXT_TYPE) {
-      return false;
-    }
-
-    var nested = this.getNestingLevel(path);
-    if (node.getType().getMetaType() == Resources.COMPOSITE_TYPE_NODE && nested > 2) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Get nesting level given entity path
-   *
-   * @param path
-   * @returns {number}
-   */
-  getNestingLevel(path) {
-    return path.length - path.replace(/\./g, '').length;
-  }
 
   /**
    * Utility function to print instance tree to console
    */
-  printInstanceStats() {
+  printInstanceStats () {
     var stats = {};
     for (var i = 0; i < this.allPaths.length; i++) {
       var path = this.allPaths[i];
@@ -1920,153 +968,14 @@ class ModelFactory {
     console.log(stats);
   }
 
-  /**
-   * Build list of potential instance paths (excluding connection instances)
-   */
-  fetchAllPotentialInstancePaths(node, allPotentialPaths, allPotentialPathsForIndexing, parentPath) {
-    // build new path
-    var xpath = '';
-    var nodeRef = node;
-    var isStaticVar = (nodeRef instanceof Variable) && node.isStatic();
-
-    if (isStaticVar) {
-      /*
-       * NOTE: for static variables, we add the variable path to the indexing list as ...
-       * NOTE: it's the only way to access the variable since there are no instances for static variables
-       */
-      xpath = node.getPath();
-    } else {
-      xpath = (parentPath == '') ? node.getId() : (parentPath + '.' + node.getId());
-    }
-
-    // build entry for path storing and indexing
-    var entry = { path: xpath, metaType: node.getType().getMetaType(), type: node.getType().getPath(), static: isStaticVar };
-
-    /*
-     * if this is a static node check if we already added entry for the exact same path
-     * NOTE: can't do it always for instances as it would slow things down A LOT
-     */
-    var staticVarAlreadyAdded = false;
-    if (isStaticVar) {
-      staticVarAlreadyAdded = (this.allStaticVarsPaths[entry.path] != undefined);
-      if (!staticVarAlreadyAdded) {
-        this.allStaticVarsPaths[entry.path] = entry;
-      }
-    }
-
-    // always add if not a static var, otherwise check that it wasnt already added
-    if (!isStaticVar || (isStaticVar && !staticVarAlreadyAdded)) {
-      allPotentialPaths.push(entry);
-      // only add to indexing if it's not a connection or nested in a composite type
-      if (this.includePotentialInstance(node, xpath)) {
-        allPotentialPathsForIndexing.push(entry);
-      }
-    }
-
-    var potentialParentPaths = [];
-    // check meta type - we are only interested in NON-static variables
-    if ((nodeRef instanceof Variable) && !node.isStatic()) {
-      var allTypes = node.getTypes();
-
-      var arrayType = undefined;
-      for (var m = 0; m < allTypes.length; m++) {
-        if (allTypes[m].getMetaType() == Resources.ARRAY_TYPE_NODE) {
-          arrayType = allTypes[m];
-        }
-      }
-
-      // STEP 1: build list of potential parent paths
-      if (arrayType != undefined) {
-        var arrayPath = arrayType.getType().getPath();
-        var arrayMetaType = arrayType.getType().getMetaType();
-        // add the [*] entry
-        if (arrayType.getSize() > 1) {
-          var starPath = xpath + '[' + '*' + ']';
-          potentialParentPaths.push(starPath);
-
-          var starEntry = {
-            path: starPath,
-            metaType: arrayMetaType,
-            type: arrayPath
-          };
-          allPotentialPaths.push(starEntry);
-          allPotentialPathsForIndexing.push(starEntry);
-        }
-
-        // add each array element path
-        for (var n = 0; n < arrayType.getSize(); n++) {
-          var arrayElementPath = xpath + '[' + n + ']';
-          potentialParentPaths.push(arrayElementPath);
-
-          var arrayElementEntry = {
-            path: arrayElementPath,
-            metaType: arrayMetaType,
-            type: arrayPath
-          };
-          allPotentialPaths.push(arrayElementEntry);
-          if (this.includePotentialInstance(node, arrayElementPath)) {
-            allPotentialPathsForIndexing.push(arrayElementEntry);
-          }
-        }
-      } else {
-        potentialParentPaths.push(xpath);
-      }
-
-      // STEP 2: RECURSE on ALL potential parent paths
-      var allTypes = node.getTypes();
-      for (var i = 0; i < allTypes.length; i++) {
-        // RECURSE on any variables inside composite types
-        this.fetchAllPotentialInstancePathsForType(allTypes[i], allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths);
-      }
-    }
-  }
-
-  /**
-   * Build list of partial instance types starting from a type
-   */
-  fetchAllPotentialInstancePathsForType(type, allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths) {
-    if (type.getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-      var vars = type.getVariables();
-
-      if (vars != undefined && vars != null) {
-        for (var j = 0; j < vars.length; j++) {
-          if (potentialParentPaths.length > 0) {
-            for (var g = 0; g < potentialParentPaths.length; g++) {
-              this.fetchAllPotentialInstancePaths(vars[j], allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths[g]);
-            }
-          } else {
-            // used for partial instance path generation
-            this.fetchAllPotentialInstancePaths(vars[j], allPotentialPaths, allPotentialPathsForIndexing, '');
-          }
-        }
-      }
-    } else if (type.getMetaType() == Resources.ARRAY_TYPE_NODE) {
-      var arrayType = type.getType();
-
-      // check if the array is of composite type and if so recurse too on contained variables
-      if (arrayType.getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-        var vars = arrayType.getVariables();
-
-        if (vars != undefined && vars != null) {
-          for (var l = 0; l < vars.length; l++) {
-            if (potentialParentPaths.length > 0) {
-              for (var h = 0; h < potentialParentPaths.length; h++) {
-                this.fetchAllPotentialInstancePaths(vars[l], allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths[h]);
-              }
-            } else {
-              // used for partial instance path generation
-              this.fetchAllPotentialInstancePaths(vars[l], allPotentialPaths, allPotentialPathsForIndexing, '');
-            }
-          }
-        }
-      }
-    }
-  }
 
   /** Creates a simple composite */
-  createModel(node, options) {
-    if (options == null || options == undefined) {
-      options = { wrappedObj: node, parent: undefined };
+  static createModel (node, options) {
+    if (options === null || options === undefined) {
+      options = {
+        wrappedObj: node,
+        parent: null
+      };
     }
 
     var n = new GeppettoModel(options);
@@ -2075,68 +984,75 @@ class ModelFactory {
   }
 
   /** Creates a simple composite */
-  createLibrary(node, options) {
-    if (options == null || options == undefined) {
-      options = { wrappedObj: node };
-    }
-
-    var n = new Library(options);
-
+  static createLibrary (node, parent) {
+    var n = new Library({
+      wrappedObj: node,
+      parent: parent
+    });
+    n.setTypes(ModelFactory.createTypes(node.types, n));
     return n;
   }
 
   /** Creates a variable */
-  createVariable(node, options) {
-    if (options == null || options == undefined) {
-      options = { wrappedObj: node, types: node.types };
+  static createVariable (node, parent) {
+    const options = {
+      wrappedObj: node,
+      types: node.types
+    };
+
+    if (parent !== undefined) {
+      options.parent = parent;
     }
 
+
     var v = new Variable(options);
-    v.values = this.createValues(node.initialValues, v);
+    v.values = ModelFactory.createValues(node.initialValues, v);
+
+
+    // check if it has an anonymous type
+    if (node.anonymousTypes !== undefined) {
+      v.anonymousTypes = ModelFactory.createTypes(node.anonymousTypes, v);
+    }
     return v;
   }
 
-  createValues(initialValuesObject, variable) {
+  static createValues (initialValuesObject, variable) {
     var values = [];
     var options;
-    if (initialValuesObject != undefined) {
+    if (initialValuesObject !== undefined) {
       for (var i = 0; i < initialValuesObject.length; i++) {
-        var value = this.createValue(initialValuesObject[i], options);
-        value.parent = variable;
+        var value = ModelFactory.createValue(initialValuesObject[i], variable);
         values.push(value);
       }
     }
     return values;
   }
 
-  createValue(valueNode, options) {
-    if (options == null || options == undefined) {
-      options = { wrappedObj: valueNode };
-    }
-    var value;
-    if (valueNode.value.eClass == "ImportValue") {
-      /*
-       * getID() was returning undefined, hence hack - ask about this.
-       * if I dont do this then path is "Model.nwbLibrary.responseType_10.recording_10.undefined"
-       */
-      value = new ImportValue(options);
-    } else {
-      value = new Value(options);
-    }
+  static createValue (valueNode, parent) {
+    const options = {
+      wrappedObj: valueNode,
+      parent: parent
+    };
 
-    return value;
+    if (valueNode.value.eClass === "ImportValue") {
+      return new ImportValue(options);
+    } else {
+      return new Value(options);
+    }
   }
 
   /** Creates a datasource */
-  createDatasource(node, options) {
-    if (options == null || options == undefined) {
-      options = { wrappedObj: node };
-    }
+  static createDatasource (node, parent) {
+
+    const options = {
+      wrappedObj: node,
+      parent: parent
+    };
 
     var d = new Datasource(options);
 
     // create queries
-    d.queries = this.createQueries(node.queries, d);
+    d.queries = ModelFactory.createQueries(node.queries, d);
 
     return d;
   }
@@ -2148,10 +1064,10 @@ class ModelFactory {
    * @param parent
    * @returns {Array}
    */
-  createQueries(rawQueries, parent) {
+  static createQueries (rawQueries, parent) {
     var queries = [];
 
-    if (rawQueries != undefined) {
+    if (rawQueries !== undefined) {
       for (var i = 0; i < rawQueries.length; i++) {
         var q = this.createQuery(rawQueries[i]);
         // set datasource as parent
@@ -2164,8 +1080,8 @@ class ModelFactory {
     return queries;
   }
 
-  createQuery(node, options) {
-    if (options == null || options == undefined) {
+  createQuery (node, options) {
+    if (options === null || options === undefined) {
       options = { wrappedObj: node };
     }
 
@@ -2173,7 +1089,7 @@ class ModelFactory {
 
     // set matching criteria
     var matchingCriteriaRefs = node.matchingCriteria;
-    if (node.matchingCriteria != undefined) {
+    if (node.matchingCriteria !== undefined) {
       for (var i = 0; i < matchingCriteriaRefs.length; i++) {
         // get type ref
         var typeRefs = matchingCriteriaRefs[i].type;
@@ -2181,7 +1097,7 @@ class ModelFactory {
         for (var j = 0; j < typeRefs.length; j++) {
           // resolve type ref
           var ref = typeRefs[j].$ref;
-          var type = this.resolve(ref);
+          var type = this.geppettoModel.resolve(ref);
 
           // push to q.matchingCriteria
           if (type instanceof Type) {
@@ -2196,111 +1112,56 @@ class ModelFactory {
     return q;
   }
 
-  getTypeOptions(node, options) {
-    if (options == null || options == undefined) {
-      return { wrappedObj: node, superType: node.superType, visualType: node.visualType };
-    } else {
-      return options;
+  static getRootNode (node) {
+    if (!node.parent) {
+      return node;
     }
+    return ModelFactory.getRootNode(node.parent);
   }
 
   /** Creates a type */
-  createType(node, options) {
-    var t = new Type(this.getTypeOptions(node, options));
+  static createType (node, library) {
+
+    const t = new Type(node, library);
     if (node.tags) {
-      t.tags = node.tags.map(tag => this.resolve(tag.$ref));
+      t.tags = node.tags.map(tag => this.geppettoModel.resolve(tag.$ref));
     }
     return t;
   }
 
   /** Creates an import type */
-  createImportType(node, options) {
-    var it = new ImportType(this.getTypeOptions(node, options));
+  createImportType (node, library) {
+    var it = new ImportType(node, parent);
     return it;
   }
 
   /** Creates a composite type */
-  createCompositeType(node, options) {
-    var t = new CompositeType(this.getTypeOptions(node, options));
-    t.variables = this.createVariables(node.variables, t);
-
+  static createCompositeType (node, library) {
+    var t = new CompositeType(node, library);
+    t.variables = ModelFactory.createVariables(t.variables, t);
     return t;
   }
 
   /** Creates a composite visual type */
-  createCompositeVisualType(node, options) {
-    var t = new CompositeVisualType(this.getTypeOptions(node, options));
-    t.variables = this.createVariables(node.variables, t);
-    if (node.visualGroups != undefined) {
-      t.visualGroups = this.createVisualGroups(node.visualGroups, t);
+  static createCompositeVisualType (node, library) {
+    var t = new CompositeVisualType(node, library);
+    t.variables = ModelFactory.createVariables(node.variables, t);
+    if (node.visualGroups !== undefined) {
+      t.visualGroups = ModelFactory.createVisualGroups(node.visualGroups, t);
     }
 
     return t;
   }
 
   /** Creates a composite type */
-  createArrayType(node, options) {
-    var t = new ArrayType(this.getTypeOptions(node, options));
-    t.size = node.size;
-    t.type = node.arrayType;
-
+  static createArrayType (node, library) {
+    var t = new ArrayType(node, library);
     return t;
   }
 
-  updateConnectionInstances(instance) {
-    var typesToSearch = this.getAllTypesOfMetaType(Resources.COMPOSITE_TYPE_NODE);
-    var connectionVariables = this.getAllVariablesOfMetaType(typesToSearch, Resources.CONNECTION_TYPE);
-    var connectionInstances = [];
-
-    for (var x = 0; x < connectionVariables.length; x++) {
-      var variable = connectionVariables[x];
-      var present = false;
-      if (instance.connections) {
-        // if there's already connections we haave to check if there is already one for this variable
-        for (var y = 0; y < instance.connections.length; y++) {
-          if (instance.connections[y].getVariable() == variable) {
-            present = true;
-            break;
-          }
-        }
-
-      }
-      if (!present) {
-        var initialValues = variable.getWrappedObj().initialValues;
-
-        var connectionValue = initialValues[0].value;
-        // resolve A and B to Pointer Objects
-        var pointerA = this.createPointer(connectionValue.a);
-        var pointerB = this.createPointer(connectionValue.b);
-        if (pointerA.getPath() == instance.getId() || pointerB.getPath() == instance.getId()) {
-          // TODO if there is more than one instance of the same projection this code will break
-          var parentInstance = this.instances.getInstance(this.getAllPotentialInstancesEndingWith(variable.getParent().getId())[0]);
-          var options = {
-            id: variable.getId(),
-            name: variable.getId(),
-            _metaType: Resources.INSTANCE_NODE,
-            variable: variable,
-            children: [],
-            parent: parentInstance
-          };
-          var connectionInstance = this.createInstance(options);
-          connectionInstance.extendApi(AConnectionCapability);
-          this.augmentPointer(pointerA, connectionInstance);
-          this.augmentPointer(pointerB, connectionInstance);
-
-          // set A and B on connection
-          connectionInstance.setA(pointerA);
-          connectionInstance.setB(pointerB);
-
-          connectionInstances.push(connectionInstance);
-        }
-      }
-    }
-
-  }
 
   /** Creates an instance */
-  createExternalInstance(path, projectId, experimentId) {
+  static createExternalInstance (path, projectId, experimentId) {
     var options = {
       _metaType: Resources.INSTANCE_NODE,
       path: path,
@@ -2311,56 +1172,23 @@ class ModelFactory {
     return new ExternalInstance(options);
   }
 
-  /** Creates an instance */
-  createInstance(options) {
-    if (options == null || options == undefined) {
-      options = { _metaType: Resources.INSTANCE_NODE };
-    }
-
-    var i = new Instance(options);
-
-    return i;
-  }
-
-  /** Creates an array element istance */
-  createArrayElementInstance(options) {
-    if (options == null || options == undefined) {
-      options = { _metaType: Resources.ARRAY_ELEMENT_INSTANCE_NODE };
-    }
-
-    var aei = new ArrayElementInstance(options);
-
-    return aei;
-  }
-
-  /** Creates an array istance */
-  createArrayInstance(options) {
-    if (options == null || options == undefined) {
-      options = { _metaType: Resources.ARRAY_INSTANCE_NODE };
-    }
-
-    var a = new ArrayInstance(options);
-
-    return a;
-  }
-
 
   /** Creates visual groups */
-  createVisualGroups(nodes, parent) {
+  static createVisualGroups (nodes, parent) {
     var visualGroups = [];
 
     for (var i = 0; i < nodes.length; i++) {
-      if (nodes[i].visualGroupElements != undefined) {
+      if (nodes[i].visualGroupElements !== undefined) {
         var options = { wrappedObj: nodes[i] };
 
         // get tags from raw json abd add to options
         var tagRefObjs = nodes[i].tags;
-        if (tagRefObjs != undefined) {
+        if (tagRefObjs !== undefined) {
           var tags = [];
 
           // populate tags from references
           for (var j = 0; j < tagRefObjs.length; j++) {
-            tags.push(this.resolve(tagRefObjs[j].$ref).name);
+            tags.push(this.geppettoModel.resolve(tagRefObjs[j].$ref).name);
           }
 
           // add to options to init object
@@ -2380,11 +1208,14 @@ class ModelFactory {
 
 
   /** Creates visual group elements */
-  createVisualGroupElements(nodes, parent) {
+  static createVisualGroupElements (nodes, parent) {
     var visualGroupElements = [];
 
     for (var i = 0; i < nodes.length; i++) {
-      var options = { wrappedObj: nodes[i], parent: parent };
+      var options = {
+        wrappedObj: nodes[i],
+        parent: parent
+      };
 
       var vge = new VisualGroupElement(options);
 
@@ -2397,7 +1228,7 @@ class ModelFactory {
   /**
    * Clean up state of instance tree
    */
-  cleanupInstanceTreeState() {
+  cleanupInstanceTreeState () {
     // get state variables - clean out time series and watched status
     var stateVariableInstances = this.getAllInstancesOf(Resources.STATE_VARIABLE_TYPE_PATH);
     for (var i = 0; i < stateVariableInstances.length; i++) {
@@ -2417,7 +1248,7 @@ class ModelFactory {
    * @param capabilityId
    * @returns {Array}
    */
-  getAllInstancesWithCapability(capabilityId, instances) {
+  getAllInstancesWithCapability (capabilityId, instances) {
     var matchingInstances = [];
 
     // traverse everything and populate matching instances
@@ -2434,171 +1265,6 @@ class ModelFactory {
     return matchingInstances;
   }
 
-  /**
-   * Get all instance given a type or a variable (path or actual object)
-   */
-  getAllInstancesOf(typeOrVar, instances) {
-    if (typeof typeOrVar === 'string' || typeOrVar instanceof String) {
-      // it's an evil string, try to eval as path in the name of satan
-      typeOrVar = eval(typeOrVar);
-    }
-
-    var allInstances = [];
-
-    if (instances == undefined) {
-      instances = this.instances;
-    }
-
-    if (typeOrVar instanceof Type) {
-      allInstances = this.getAllInstancesOfType(typeOrVar, instances);
-    } else if (typeOrVar.getMetaType() == Resources.VARIABLE_NODE) {
-      allInstances = this.getAllInstancesOfVariable(typeOrVar, instances);
-    } else {
-      // good luck
-      throw ("The argument " + typeOrVar + " is neither a Type or a Variable. Good luck.");
-    }
-
-    return allInstances;
-  }
-
-  /**
-   * Get all instances given a type
-   */
-  getAllInstancesOfType(type, instances) {
-    if (!(type instanceof Type)) {
-      // raise hell
-      throw ("The argument " + type + " is not a Type or a valid Type path. Good luck.");
-    }
-
-    if (instances == undefined) {
-      instances = this.instances;
-    }
-
-    // do stuff
-    var matchingInstances = [];
-    this.findMatchingInstancesByType(type, instances, matchingInstances);
-
-    return matchingInstances;
-  }
-
-  /**
-   * Get all instances given a variable
-   */
-  getAllInstancesOfVariable(variable, instances) {
-    if (!(variable.getMetaType() == Resources.VARIABLE_NODE)) {
-      // raise hell
-      throw ("The argument " + variable + " is not a Type or a valid Type path. Good luck.");
-    }
-
-    if (instances == undefined) {
-      instances = this.instances;
-    }
-
-    // do stuff
-    var matchingInstances = [];
-    this.findMatchingInstancesByVariable(variable, instances, matchingInstances);
-
-    return matchingInstances;
-  }
-
-  /**
-   * Get all POTENTIAL instances ending with a given string
-   */
-  getAllPotentialInstancesEndingWith(endingString) {
-    var matchingPotentialInstances = [];
-
-    for (var i = 0; i < this.allPaths.length; i++) {
-      if (this.allPaths[i].path.endsWith(endingString) && this.allPaths[i].path.indexOf("*") == -1) {
-        matchingPotentialInstances.push(this.allPaths[i].path);
-      }
-    }
-
-    return matchingPotentialInstances;
-  }
-
-
-  /**
-   * Get all POTENTIAL instances starting with a given string
-   */
-  getAllPotentialInstancesStartingWith(startingString) {
-    var matchingPotentialInstances = [];
-
-    for (var i = 0; i < this.allPaths.length; i++) {
-      if (this.allPaths[i].path.startsWith(startingString) && this.allPaths[i].path.indexOf("*") == -1) {
-        matchingPotentialInstances.push(this.allPaths[i].path);
-      }
-    }
-
-    return matchingPotentialInstances;
-  }
-
-  /**
-   * Get all POTENTIAL instances of a given type
-   */
-  getAllPotentialInstancesOfType(typePath, paths) {
-    if (paths == undefined) {
-      paths = this.allPaths;
-    }
-
-    var matchingPotentialInstances = [];
-
-    for (var i = 0; i < paths.length; i++) {
-      if (paths[i].type == typePath) {
-        matchingPotentialInstances.push(paths[i].path);
-      }
-    }
-
-    return matchingPotentialInstances;
-  }
-
-  /**
-   * Get all POTENTIAL instances of a given meta type
-   */
-  getAllPotentialInstancesOfMetaType(metaType, paths, includeType) {
-    if (paths == undefined) {
-      paths = this.allPaths;
-    }
-
-    var matchingPotentialInstances = [];
-
-    for (var i = 0; i < paths.length; i++) {
-      if (paths[i].metaType == metaType) {
-        var itemToPush = paths[i].path;
-        if (includeType === true) {
-          itemToPush = paths[i];
-        }
-        matchingPotentialInstances.push(itemToPush);
-      }
-    }
-
-    return matchingPotentialInstances;
-  }
-
-  /**
-   * Get all types of given a meta type (string)
-   *
-   * @param metaType - metaType String
-   *
-   * @returns {Array} - Types
-   */
-  getAllTypesOfMetaType(metaType) {
-    var types = [];
-
-    // iterate all libraries
-    var libraries = this.geppettoModel.getLibraries();
-    for (var i = 0; i < libraries.length; i++) {
-      // iterate all types within library
-      var libraryTypes = libraries[i].getTypes();
-      for (var j = 0; j < libraryTypes.length; j++) {
-        // add if its metatype matches
-        if (libraryTypes[j].getMetaType() == metaType) {
-          types.push(libraryTypes[j]);
-        }
-      }
-    }
-
-    return types;
-  }
 
   /**
    * Get all types of given a type (checks inheritance)
@@ -2607,7 +1273,7 @@ class ModelFactory {
    *
    * @returns {Array} - Types
    */
-  getAllTypesOfType(type) {
+  getAllTypesOfType (type) {
     if (typeof type === 'string' || type instanceof String) {
       // it's an evil string, try to eval as type path in the name of baal
       type = eval(type);
@@ -2621,10 +1287,10 @@ class ModelFactory {
       // iterate all types within library
       var libraryTypes = libraries[i].getTypes();
       for (var j = 0; j < libraryTypes.length; j++) {
-        if (libraryTypes[j] == type) {
+        if (libraryTypes[j] === type) {
           // add if it's a straight match (the type himself)
           types.push(libraryTypes[j]);
-        } else if (libraryTypes[j].getSuperType() != undefined && libraryTypes[j].getSuperType() != null) {
+        } else if (libraryTypes[j].getSuperType() !== undefined && libraryTypes[j].getSuperType() !== null) {
           // check list of super types
           var superTypes = libraryTypes[j].getSuperType();
 
@@ -2633,7 +1299,7 @@ class ModelFactory {
           }
 
           for (var w = 0; w < superTypes.length; w++) {
-            if (superTypes[w] == type) {
+            if (superTypes[w] === type) {
               // add if superType matches
               types.push(libraryTypes[j]);
               // sufficient condition met, break the loop
@@ -2643,7 +1309,7 @@ class ModelFactory {
         } else {
           // TODO: no immediate matches - recurse on super type and see if any matches if any matches add this type
           /*
-           * if(libraryTypes[j].getSuperType() != undefined && libraryTypes[j].getSuperType() != null) {
+           * if(libraryTypes[j].getSuperType() !== undefined && libraryTypes[j].getSuperType() !== null) {
            * var superTypeMatches = this.getAllTypesOfType(libraryTypes[j].getSuperType());
            * if (superTypeMatches.length > 0) {
            * types.push(libraryTypes[j]);
@@ -2666,7 +1332,7 @@ class ModelFactory {
    *
    * @returns {Array}
    */
-  getAllVariablesOfType(typesToSearch, typeToMatch, recursive) {
+  getAllVariablesOfType (typesToSearch, typeToMatch, recursive) {
     // check if array and if not "make it so"
     if (!(typesToSearch instanceof Array)) {
       typesToSearch = [typesToSearch];
@@ -2675,15 +1341,15 @@ class ModelFactory {
     var variables = [];
 
     for (var i = 0; i < typesToSearch.length; i++) {
-      if (typesToSearch[i].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
+      if (typesToSearch[i].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
         var nestedVariables = typesToSearch[i].getVariables();
-        if (typeToMatch != undefined && typeToMatch != null) {
+        if (typeToMatch !== undefined && typeToMatch !== null) {
           for (var j = 0; j < nestedVariables.length; j++) {
             var varTypes = nestedVariables[j].getTypes();
             for (var x = 0; x < varTypes.length; x++) {
-              if (varTypes[x] == typeToMatch) {
+              if (varTypes[x] === typeToMatch) {
                 variables.push(nestedVariables[j]);
-              } else if (varTypes[x].getSuperType() != undefined) {
+              } else if (varTypes[x].getSuperType() !== undefined) {
                 // check list of super types
                 var superTypes = varTypes[x].getSuperType();
 
@@ -2692,13 +1358,13 @@ class ModelFactory {
                 }
 
                 for (var w = 0; w < superTypes.length; w++) {
-                  if (superTypes[w] == typeToMatch) {
+                  if (superTypes[w] === typeToMatch) {
                     variables.push(nestedVariables[j]);
                     // sufficient condition met, break the loop
                     break;
                   }
                 }
-              } else if (varTypes[x].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
+              } else if (varTypes[x].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
                 // check if type is composite and recurse
                 variables = variables.concat(this.getAllVariablesOfType([varTypes[x]], typeToMatch));
               }
@@ -2718,55 +1384,17 @@ class ModelFactory {
 
 
   /**
-   * Gets all variables with the given metaType
-   *
-   * @param typesToSearch
-   *
-   * @param metaType
-   *
-   * @returns {Array}
-   */
-  getAllVariablesOfMetaType(typesToSearch, metaType) {
-    // check if array and if not "make it so"
-    if (!(typesToSearch.constructor === Array)) {
-      typesToSearch = [typesToSearch];
-    }
-
-    var variables = [];
-
-    for (var i = 0; i < typesToSearch.length; i++) {
-      if (typesToSearch[i].getMetaType() == Resources.COMPOSITE_TYPE_NODE) {
-        var nestedVariables = typesToSearch[i].getVariables();
-        if (metaType != undefined && metaType != null) {
-          for (var j = 0; j < nestedVariables.length; j++) {
-            var varTypes = nestedVariables[j].getTypes();
-            for (var x = 0; x < varTypes.length; x++) {
-              if (varTypes[x].getMetaType() == metaType) {
-                variables.push(nestedVariables[j]);
-              }
-            }
-          }
-        } else {
-          variables = variables.concat(nestedVariables);
-        }
-      }
-    }
-
-    return variables;
-  }
-
-  /**
    * Get top level variables by id
    *
    * @param variableIds
    * @returns {Array}
    */
-  getTopLevelVariablesById(variableIds) {
+  getTopLevelVariablesById (variableIds) {
     var variables = [];
 
     for (var i = 0; i < variableIds.length; i++) {
-      if (window.Model[variableIds[i]] != undefined) {
-        variables.push(window.Model[variableIds[i]]);
+      if (this.geppettoModel[variableIds[i]] !== undefined) {
+        variables.push(this.geppettoModel[variableIds[i]]);
       }
     }
 
@@ -2779,8 +1407,8 @@ class ModelFactory {
    * @param type
    * @param resultType
    */
-  getMatchingQueries(type, resultType) {
-    var topLevelQueries = window.Model.getQueries();
+  getMatchingQueries (type, resultType) {
+    var topLevelQueries = this.geppettoModel.getQueries();
     var matchingQueries = [];
 
     // iterate top level queries
@@ -2788,8 +1416,8 @@ class ModelFactory {
       // check matching criteria first
       if (topLevelQueries[k].matchesCriteria(type)) {
         // if resultType is defined then match on that too
-        if (resultType != undefined) {
-          if (resultType == topLevelQueries[k].getResultType()) {
+        if (resultType !== undefined) {
+          if (resultType === topLevelQueries[k].getResultType()) {
             matchingQueries.push(topLevelQueries[k]);
           }
         } else {
@@ -2801,11 +1429,11 @@ class ModelFactory {
     return matchingQueries;
   }
 
-  getHTMLVariable(typesToSearch, metaType, identifier) {
+  getHTMLVariable (typesToSearch, metaType, identifier) {
     var variables = this.getAllVariablesOfMetaType(typesToSearch, metaType);
     for (var i in variables) {
-      if (identifier != null && identifier != undefined) {
-        if (variables[i].getId() == identifier) {
+      if (identifier !== null && identifier !== undefined) {
+        if (variables[i].getId() === identifier) {
           return variables[i];
         }
       }
@@ -2819,7 +1447,7 @@ class ModelFactory {
    *
    * @param instances
    */
-  getInstanceCount(instances) {
+  getInstanceCount (instances) {
     var count = 0;
 
     count += instances.length;
@@ -2832,17 +1460,16 @@ class ModelFactory {
   }
 
 
-
   /**
    * Unresolve type
    *
    * @param type
    */
-  unresolveType(type) {
+  unresolveType (type) {
     var libs = this.geppettoModel.getLibraries();
     var typePath = type.getPath();
     // swap the type with type.overrideType if any is found
-    if (type.overrideType != undefined) {
+    if (type.overrideType !== undefined) {
       // get all types in the current model
       var typeToLibraryMap = [];
       var allTypesInModel = [];
@@ -2863,7 +1490,7 @@ class ModelFactory {
 
       // find type in library (we need the index)
       for (var m = 0; m < typeToLibraryMap[typePath].getTypes().length; m++) {
-        if (type.getPath() == typeToLibraryMap[typePath].getTypes()[m].getPath()) {
+        if (type.getPath() === typeToLibraryMap[typePath].getTypes()[m].getPath()) {
           // swap type in raw model
           typeToLibraryMap[typePath].getWrappedObj().types[m] = type.overrideType.getWrappedObj();
 
@@ -2884,67 +1511,8 @@ class ModelFactory {
     }
   }
 
-  /**
-   * A generic method to resolve a reference
-   */
-  resolve(refStr) {
 
-    var reference = undefined;
-    /*
-     * Examples of reference strings
-     * //@libraries.0/@types.20/@variables.5/@anonymousTypes.0/@variables.7
-     * //@libraries.1/@types.5
-     * //@tags.1/@tags.5
-     * //@libraries.0/@types.8/@visualGroups.0/@visualGroupElements.1
-     */
-    var raw = refStr.replace("geppettoModel#", "");
-
-    raw = raw.replace(/\//g, '').split('@');
-    for (var i = 0; i < raw.length; i++) {
-      var index = parseInt(raw[i].split('.')[1]);
-      if (raw[i].indexOf('libraries') > -1) {
-        reference = this.geppettoModel.getLibraries()[index];
-      } else if (raw[i].indexOf('variables') > -1) {
-        if (reference == undefined) {
-          reference = this.geppettoModel.getVariables()[index];
-        } else {
-          reference = reference.getVariables()[index];
-        }
-      } else if (raw[i].indexOf('types') > -1) {
-        reference = reference.getTypes()[index];
-      } else if (raw[i].indexOf('anonymousTypes') > -1) {
-        reference = reference.getAnonymousTypes()[index];
-      } else if (raw[i].indexOf('tags') > -1 && i === 1) {
-        reference = this.rawGeppetoModel.tags && this.rawGeppetoModel.tags.length >= index ? this.rawGeppetoModel.tags[index] : this.geppettoModel.tags[index];
-      } else if (raw[i].indexOf('tags') > -1 && i === 2) {
-        reference = reference.tags[index];
-      } else if (raw[i].indexOf('visualGroups') > -1) {
-        reference = reference.getVisualGroups()[index];
-      } else if (raw[i].indexOf('visualGroupElements') > -1) {
-        reference = reference.getVisualGroupElements()[index];
-      } else if (raw[i].indexOf('worlds') > -1) {
-        reference = this.geppettoModel.getWorlds()[index];
-      } else if (raw[i].indexOf('instances') > -1) {
-        reference = reference.getInstances()[index];
-      }
-    }
-
-    return reference;
-  }
-
-  /**
-   * Populates "tags" for instances
-   */
-  populateInstanceTags() {
-    var i = new Instance({});
-    this.instanceTags[Resources.INSTANCE_NODE] = extractMethodsFromObject(i, true);
-    var ai = new ArrayInstance({});
-    this.instanceTags[Resources.ARRAY_INSTANCE_NODE] = extractMethodsFromObject(ai, true);
-    var aei = new ArrayElementInstance({});
-    this.instanceTags[Resources.ARRAY_ELEMENT_INSTANCE_NODE] = extractMethodsFromObject(aei, true);
-  }
-
-  getVariables(rawGeppettoModel) {
+  static getVariables (rawGeppettoModel) {
     if (!rawGeppettoModel.worlds || !rawGeppettoModel.worlds.length) {
       return rawGeppettoModel.variables;
     }
@@ -2952,11 +1520,8 @@ class ModelFactory {
     return world.variables;
   }
 
-  fillWorldsFromRawModel(geppettoModel, jsonModel) {
-    geppettoModel.worlds = jsonModel.worlds.map(world => this.createWorld(world));
-  }
 
-  _getStaticInstancePaths(geppettoModel) {
+  static _getStaticInstancePaths (geppettoModel) {
 
     if (geppettoModel.getCurrentWorld === undefined) {
       if (!geppettoModel.worlds || !geppettoModel.worlds.length) {
@@ -2964,7 +1529,7 @@ class ModelFactory {
       }
       const rawModel = geppettoModel;
       geppettoModel = new GeppettoModel({ wrappedObj: rawModel });
-      this.fillWorldsFromRawModel(geppettoModel, rawModel);
+
     }
     return geppettoModel.getCurrentWorld().getInstances().map(createInstancePathObj);
   }
@@ -2972,7 +1537,7 @@ class ModelFactory {
 }
 
 
-function createInstancePathObj(instance) {
+function createInstancePathObj (instance) {
   return {
     path: instance.getPath(),
     metaType: instance.getType().getMetaType(),

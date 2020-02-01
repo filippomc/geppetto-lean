@@ -7,11 +7,18 @@
  * @author Matteo Cantarelli
  */
 
-export default {
-  capabilityId: 'StateVariableCapability',
-  watched: false,
-  timeSeries: null,
-  unit: null,
+export default class AStateVariableCapability{
+
+  contructor (experimentsController) {
+    if (!this.experimentsController) {
+      throw new Error("experimentsController is required.");
+    }
+    this.capabilityId = 'StateVariableCapability';
+    this.watched = false;
+    this.timeSeries = null;
+    this.unit = null;
+    this.experimentsController = experimentsController;
+  }
 
   /**
    * Get value of quantity
@@ -19,15 +26,15 @@ export default {
    * @command Variable.getTimeSeries()
    * @returns {String} Value of quantity
    */
-  getTimeSeries: function () {
+  getTimeSeries () {
     if (!this.timeSeries) {
       var timeSeries = undefined;
       var initialValues = this.getVariable().getWrappedObj().initialValues;
 
-      if (initialValues != undefined) {
+      if (initialValues !== undefined) {
         for (var i = 0; i < initialValues.length; i++) {
           if (initialValues[i].value.eClass === 'TimeSeries') {
-            timeSeries = initialValues[i].value.value
+            timeSeries = initialValues[i].value.value;
           }
         }
       }
@@ -35,7 +42,7 @@ export default {
       return timeSeries;
     }
     return this.timeSeries;
-  },
+  }
 
 
   /**
@@ -44,10 +51,10 @@ export default {
    * @command Variable.setTimeSeries()
    * @returns {Object} The state variable
    */
-  setTimeSeries: function (timeSeries) {
+  setTimeSeries (timeSeries) {
     this.timeSeries = timeSeries;
     return this;
-  },
+  }
 
   /**
    * Get the initial value for the state variable
@@ -55,19 +62,19 @@ export default {
    * @command Variable.getInitialValue()
    * @returns {Object} The initial value of the state variable
    */
-  getInitialValue: function () {
+  getInitialValue () {
 
     return this.getVariable().getWrappedObj().initialValues;
-  },
+  }
 
   /**
    * Set unit value
    *
    * @param unit
    */
-  setUnit: function (unit){
+  setUnit (unit){
     this.unit = unit;
-  },
+  }
 
   /**
    * Get the type of tree this is
@@ -75,21 +82,21 @@ export default {
    * @command Variable.getUnit()
    * @returns {String} Unit for quantity
    */
-  getUnit: function () {
+  getUnit () {
     return (this.unit == null) ? this.extractUnit() : this.unit;
-  },
+  }
         
-  extractUnit : function (){
+  extractUnit (){
     var unit = undefined;
     var initialValues = this.getVariable().getWrappedObj().initialValues;
 
     for (var i = 0; i < initialValues.length; i++) {
       if (initialValues[i].value.eClass === 'PhysicalQuantity' || initialValues[i].value.eClass === 'TimeSeries') {
-        unit = initialValues[i].value.unit.unit
+        unit = initialValues[i].value.unit.unit;
       }
     }
     return unit;
-  },
+  }
 
   /**
    * Get watched
@@ -97,23 +104,24 @@ export default {
    * @command Variable.getWatched()
    * @returns {boolean} true if this variable is being watched
    */
-  isWatched: function () {
+  isWatched () {
     // NOTE: this.watched is a flag added by this API / Capability
     return this.watched;
-  },
+  }
 
   /**
    * Set watched
    *
    * @command Variable.setWatched()
-   * @param {Boolean} watched - Object with options attributes to initialize node
+   * @param isWatched
+   * @param updateServer
    */
-  setWatched: function (isWatched, updateServer) {
-    if (updateServer == undefined) {
+  setWatched (isWatched, updateServer) {
+    if (updateServer === undefined) {
       updateServer = true;
     }
-    if (updateServer && isWatched != this.watched) {
-      GEPPETTO.ExperimentsController.watchVariables([this], isWatched);
+    if (updateServer && isWatched !== this.watched) {
+      this.experimentsController.watchVariables([this], isWatched);
     }
     this.watched = isWatched;
     return this;

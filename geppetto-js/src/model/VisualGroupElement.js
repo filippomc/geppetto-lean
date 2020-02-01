@@ -10,9 +10,9 @@
  */
 
 
-var ObjectWrapper = require('./ObjectWrapper').default;
+import ObjectWrapper from './ObjectWrapper';
 
-function VisualGroupElement (options) {
+export default function VisualGroupElement (options) {
   ObjectWrapper.prototype.constructor.call(this, options);
 }
 
@@ -80,7 +80,3 @@ VisualGroupElement.prototype.show = function (mode, instances) {
 
   }
 };
-
-// Compatibility with new imports and old require syntax
-VisualGroupElement.default = VisualGroupElement;
-module.exports = VisualGroupElement;

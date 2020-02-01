@@ -1,11 +1,12 @@
-const ObjectWrapper = require('./ObjectWrapper');
-const extend = require('../Utility').extend;
+import ObjectWrapper from './ObjectWrapper';
+import { extend } from '../Utility';
+
 /**
  * Client class use to represent a variable.
  *
  * @module model/Value
  */
-class Value extends ObjectWrapper{
+export default class Value extends ObjectWrapper {
 
 
   constructor (options) {
@@ -23,12 +24,12 @@ class Value extends ObjectWrapper{
     case 'Composite':
       return this.getObjectForMetadata(rawValue.value);
     case 'StringToValueMap':
-      return { [rawValue.key]:this.getObject(rawValue.value) }
+      return { [rawValue.key]: this.getObject(rawValue.value) };
     case 'TypeToValueMap':
-      return { 'value': this.getObject(rawValue.value) }
-    default:{
+      return { 'value': this.getObject(rawValue.value) };
+    default: {
       let obj = { ...rawValue };
-      
+
       if (obj.value && obj.value.eClass) {
         extend(obj, this.getObject(obj.value));
       }
@@ -43,7 +44,7 @@ class Value extends ObjectWrapper{
 
 
   getObjectForMetadata (rawValue) {
-    let obj = {}
+    let obj = {};
     for (let stringValueMap of rawValue) {
       if (!stringValueMap.value) {
         console.error('Malformed object value', stringValueMap);
@@ -53,9 +54,5 @@ class Value extends ObjectWrapper{
     }
     return obj;
   }
-  
-}
 
-// Compatibility with new imports and old require syntax
-Value.default = Value;
-module.exports = Value;
+}

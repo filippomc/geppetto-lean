@@ -3,8 +3,8 @@ import { extend } from '../Utility';
 
 export default class ASimpleInstance extends ObjectWrapper{
  
-  constructor (node) {
-    super({ wrappedObj: node });
+  constructor (node, parent) {
+    super({ wrappedObj: node, parent: parent });
 
     // Value and type can be wrapped so let's keep separate from the visual value
     this.value = node.value;
@@ -69,9 +69,7 @@ export default class ASimpleInstance extends ObjectWrapper{
     return this.getInstancePath();
   }
 
-  getParent () {
-    return null;
-  }
+
 
   addChild () {
     throw "Simple instances don't have children";
@@ -83,7 +81,7 @@ export default class ASimpleInstance extends ObjectWrapper{
   }
 
   hasCapability (capabilityId) {
-    return this.capabilities.findIndex(capability => capability === capabilityId) != -1;
+    return this.capabilities.findIndex(capability => capability === capabilityId) !== -1;
   }
 
   getCapabilities () {
@@ -97,6 +95,11 @@ export default class ASimpleInstance extends ObjectWrapper{
 
   addConnection (connection) {
     this.connections.push(connection);
+  }
+
+  populateTypeReferences () {
+    const node = this;
+    node.type = node.geppettoModel.resolve(node.getType().$ref);
   }
 }
 

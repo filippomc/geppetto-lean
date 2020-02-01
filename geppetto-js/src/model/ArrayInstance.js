@@ -1,4 +1,4 @@
-const Instance = require('./Instance').default;
+import Instance from './Instance';
 /**
  * Client class use to represent an array of instances.
  *

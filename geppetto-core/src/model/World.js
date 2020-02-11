@@ -1,5 +1,5 @@
 import ObjectWrapper from './ObjectWrapper';
-import InstanceFactory from "../Instances";
+import InstanceFactory from "../InstanceFactory";
 import ModelFactory from "../ModelFactory";
 import SimpleConnectionInstance from "./SimpleConnectionInstance";
 

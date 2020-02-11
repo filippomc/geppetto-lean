@@ -1,7 +1,8 @@
 import ObjectWrapper from './ObjectWrapper';
 import { extend } from '../Utility';
+import InstantiableNode from "./InstantiableNode";
 
-export default class ASimpleInstance extends ObjectWrapper{
+export default class ASimpleInstance extends InstantiableNode{
  
   constructor (node, parent) {
     super({ wrappedObj: node, parent: parent });

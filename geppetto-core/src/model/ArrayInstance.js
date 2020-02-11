@@ -1,4 +1,6 @@
 import Instance from './Instance';
+import Type from "./Type";
+import Resources from "../Resources";
 /**
  * Client class use to represent an array of instances.
  *
@@ -39,6 +41,10 @@ class ArrayInstance extends Instance {
    */
   getSize () {
     return this.size;
+  }
+
+  populateShortcutsToChild (child) {
+
   }
 
 }

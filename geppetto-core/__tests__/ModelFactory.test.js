@@ -1,12 +1,12 @@
 const ModelFactory = require('../src/ModelFactory').default;
-const InstanceFactory = require('../src/Instances').default;
+const InstanceFactory = require('../src/InstanceFactory').default;
 const testModel = require('./resources/test_model.json');
 const AA = require('../src/model/ArrayElementInstance').default;
 
 
 test('load test model with new instances', () => {
   const model = ModelFactory.createGeppettoModel(testModel, true, true);
-  const instances = ModelFactory.createInstances(model);
+  const instances = InstanceFactory.createInstances(model);
 
   expect(model.allPaths.length).toBe(11);
 
@@ -20,22 +20,25 @@ test('load test model with new instances', () => {
   expect(instances.d.getValue().c.x).toBe(1);
   expect(instances.E.getValue().value.length).toBe(3);
   expect(instances.getInstance('v.ctv').getValue().value.text).toBe('aaa');
-  expect(instances.a2b.a).toBe(instances.a);
-  expect(instances.a2b.b).toBe(instances.b);
+  expect(instances.a2b.a).toStrictEqual(instances.a);
+  expect(instances.a2b.b).toStrictEqual(instances.b);
 });
 
 test('Merge models', () => {
 
   const model = ModelFactory.createGeppettoModel(testModel, true, true);
-  const instances = ModelFactory.createInstances(model);
+  const instances = InstanceFactory.createInstances(model);
 
   expect(model.allPaths.length).toBe(11);
   expect(instances.length).toBe(7);
   
-  let diffReport = ModelFactory.mergeModel(testModel);
+  let diffReport = ModelFactory.mergeModel(testModel, model);
+
   expect(diffReport.variables.length).toBe(0);
 
   InstanceFactory.createInstancesFromDiffReport(diffReport, instances);
+
+
   expect(model.allPaths.length).toBe(11);
   expect(instances.length).toBe(7);
 
@@ -51,12 +54,13 @@ test('Merge models', () => {
     "id": "v2"
   });
 
-  diffReport = ModelFactory.mergeModel(testModel);
-  
+  diffReport = ModelFactory.mergeModel(testModel, model);
+
   expect(diffReport.variables.length).toBe(1);
-  expect(model.allPaths.length).toBe(13);
-  diffReport = ModelFactory.mergeModel(testModel);
+  expect(model.allPaths.length).toBe(11);
+
   InstanceFactory.createInstancesFromDiffReport(diffReport, instances);
+  expect(model.allPaths.length).toBe(13);
   
   expect(instances.length).toBe(7);
   instances.getInstance('v2');
@@ -75,7 +79,8 @@ test('Merge models', () => {
     "id": "wv2"
   });
 
-  diffReport = ModelFactory.mergeModel(testModel);
+  diffReport = ModelFactory.mergeModel(testModel, model);
+  InstanceFactory.createInstancesFromDiffReport(diffReport, instances);
   expect(diffReport.variables.length).toBe(0);
   expect(diffReport.worlds[0].variables.length).toBe(1);
   expect(diffReport.worlds[0].instances.length).toBe(0);
@@ -105,12 +110,12 @@ test('Merge models', () => {
     "name": "N"
   });
 
-  diffReport = modelFactory.mergeModel(testModel);
-  modelFactory.createInstancesFromDiffReport(diffReport, instances);
+  diffReport = ModelFactory.mergeModel(testModel, model);
+  InstanceFactory.createInstancesFromDiffReport(diffReport, instances);
   expect(diffReport.variables.length).toBe(0);
   expect(diffReport.worlds[0].variables.length).toBe(0);
   expect(diffReport.worlds[0].instances.length).toBe(1);
-  expect(modelFactory.allPaths.length).toBe(16);
+  expect(model.allPaths.length).toBe(16);
   expect(instances.length).toBe(10);
   instances.getInstance('n'); // Static instances are always instantiated
   expect(instances.length).toBe(10);

@@ -9,6 +9,7 @@ import ObjectWrapper from './ObjectWrapper';
 import Resources from '../Resources';
 import Instance from "./Instance";
 import ModelFactory from "../ModelFactory";
+import Variable from "./Variable";
 
 export default class GeppettoModel extends ObjectWrapper {
 
@@ -22,12 +23,13 @@ export default class GeppettoModel extends ObjectWrapper {
     this.queries = (options.queries !== undefined) ? options.queries : [];
     this.worlds = this.getWrappedObj().worlds.map(world => ModelFactory.createWorld(world, this));
     this.currentWorldIdx = this.wrappedObj.worlds && this.wrappedObj.worlds.length ? 0 : -1;
-    this.allPaths = [];
-    this.allPathsIndexing = [];
+    this.allPaths = {};
   }
 
-  static fillWorldsFromRawModel (geppettoModel, jsonModel) {
-
+  updatePaths(potentialInstances) {
+    for (let node of potentialInstances) {
+      this.allPaths[node.getPath()] = node.getInstanceDescriptor();
+    }
   }
 
   /**
@@ -177,31 +179,33 @@ export default class GeppettoModel extends ObjectWrapper {
     let raw = refStr.replace("geppettoModel#", "");
 
     raw = raw.replace(/\//g, '').split('@');
-    for (var i = 0; i < raw.length; i++) {
-      var index = parseInt(raw[i].split('.')[1]);
-      if (raw[i].indexOf('libraries') > -1) {
+    for (let pathElement of raw) {
+      var index = parseInt(pathElement.split('.')[1]);
+      if (pathElement.indexOf('libraries') > -1) {
         reference = this.getLibraries()[index];
-      } else if (raw[i].indexOf('variables') > -1) {
+      } else if (pathElement.indexOf('variables') > -1) {
         if (reference === undefined) {
           reference = this.getVariables()[index];
         } else {
           reference = reference.getVariables()[index];
         }
-      } else if (raw[i].indexOf('types') > -1) {
+      } else if (pathElement.indexOf('types') > -1) {
         reference = reference.getTypes()[index];
-      } else if (raw[i].indexOf('anonymousTypes') > -1) {
+      } else if (pathElement.indexOf('anonymousTypes') > -1) {
         reference = reference.getAnonymousTypes()[index];
-      } else if (raw[i].indexOf('tags') > -1 && i === 1) {
-        reference = this.wrappedObj.tags && this.wrappedObj.tags.length >= index ? this.wrappedObj.tags[index] : this.tags[index];
-      } else if (reference && raw[i].indexOf('tags') > -1 && i === 2) {
-        reference = reference.tags[index];
-      } else if (reference && raw[i].indexOf('visualGroups') > -1) {
+      } else if (pathElement.indexOf('tags') > -1) {
+        if(reference.tags[index]) {
+          reference = reference.tags[index];
+        } else {
+          reference = this.wrappedObj.tags && this.wrappedObj.tags.length >= index ? this.wrappedObj.tags[index] : this.tags[index];
+        }
+      } else if (reference && pathElement.indexOf('visualGroups') > -1) {
         reference = reference.getVisualGroups()[index];
-      } else if (reference && raw[i].indexOf('visualGroupElements') > -1) {
+      } else if (reference && pathElement.indexOf('visualGroupElements') > -1) {
         reference = reference.getVisualGroupElements()[index];
-      } else if (reference && raw[i].indexOf('worlds') > -1) {
+      } else if (pathElement.indexOf('worlds') > -1) {
         reference = this.getWorlds()[index];
-      } else if (reference && raw[i].indexOf('instances') > -1) {
+      } else if (reference && pathElement.indexOf('instances') > -1) {
         reference = reference.getInstances()[index];
       }
     }
@@ -234,5 +238,19 @@ export default class GeppettoModel extends ObjectWrapper {
     return types;
   }
 
+  /**
+   * Utility function to print instance tree to console
+   */
+  printInstanceStats () {
+    var stats = {};
+    for (var i = 0; i < this.allPaths.length; i++) {
+      var path = this.allPaths[i];
+      if (!Object.prototype.hasOwnProperty.call(stats, path.metaType)) {
+        stats[path.metaType] = 0;
+      }
+      stats[path.metaType]++;
+    }
+    console.log(stats);
+  }
 
 }

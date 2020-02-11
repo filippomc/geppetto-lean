@@ -1,44 +1,28 @@
-import ArrayType from './model/ArrayType';
-import ImportType from './model/ImportType';
-import ImportValue from './model/ImportValue';
-import Instance from './model/Instance';
-import ExternalInstance from './model/ExternalInstance';
-import ArrayInstance from './model/ArrayInstance';
-import ArrayElementInstance from './model/ArrayElementInstance';
-import VisualGroup from './model/VisualGroup';
-import VisualGroupElement from './model/VisualGroupElement';
-import Pointer from './model/Pointer';
-import PointerElement from './model/PointerElement';
-import SimpleInstance from './model/SimpleInstance';
-import SimpleConnectionInstance from './model/SimpleConnectionInstance';
-import World from './model/World';
-import AVisualCapability from './capabilities/AVisualCapability';
-import AVisualGroupCapability from './capabilities/AVisualGroupCapability';
-import AConnectionCapability from './capabilities/AConnectionCapability';
-import AParameterCapability from './capabilities/AParameterCapability';
-import AParticlesCapability from './capabilities/AParticlesCapability';
-import AStateVariableCapability from './capabilities/AStateVariableCapability';
-import ADerivedStateVariableCapability from './capabilities/ADerivedStateVariableCapability';
-import Resources from './Resources';
+import Resources from "./Resources";
+import Instance from "./model/Instance";
+import ArrayElementInstance from "./model/ArrayElementInstance";
+import ArrayInstance from "./model/ArrayInstance";
 import ModelUtils from "./ModelUtils";
-import { extractMethodsFromObject } from "./Utility";
-import Type from "./model/Type";
+import SimpleInstance from "./model/SimpleInstance";
+import SimpleConnectionInstance from "./model/SimpleConnectionInstance";
 import ModelFactory from "./ModelFactory";
-
+import AVisualCapability from "./capabilities/AVisualCapability";
+import AVisualGroupCapability from "./capabilities/AVisualGroupCapability";
+import AConnectionCapability from "./capabilities/AConnectionCapability";
+import AStateVariableCapability from "./capabilities/AStateVariableCapability";
+import ADerivedStateVariableCapability from "./capabilities/ADerivedStateVariableCapability";
+import AParameterCapability from "./capabilities/AParameterCapability";
+import AParticlesCapability from "./capabilities/AParticlesCapability";
+import Type from "./model/Type";
+import Instances from './Instances';
 
 class InstanceFactory {
 
-  constructor() {
-    this.instanceTags = {};
-    this.instances = [];
+
+  static createInstances (geppettoModel){
+    const instances = new Instances(geppettoModel);
+    return instances;
   }
-
-  createInstances (geppettoModel){
-    this.instances = new Instances(geppettoModel);
-    return this.instances;
-  }
-
-
 
   /** Creates an instance */
   static createInstance (options) {
@@ -72,50 +56,54 @@ class InstanceFactory {
 
     return a;
   }
+
+
+  static getTypePotentialInstancePaths (types) {
+    var paths = [];
+
+    for (var l = 0; l < types.length; l++) {
+      if (types[l].hasCapability(Resources.VISUAL_CAPABILITY)) {
+        // get potential instances with that type
+        paths = paths.concat(ModelUtils.getAllPotentialInstancesOfType(types[l].getPath()));
+      }
+    }
+    return paths;
+  }
+
   /**
    * Checks if new instances need to be created
    *
    * @param diffReport - lists variables and types that we need to check instances for
+   * @param {Instances} previousInstances
    */
-  createInstancesFromDiffReport (diffReport, previousInstances) {
+  static createInstancesFromDiffReport (diffReport, previousInstances) {
     // get initial instance count (used to figure out if we added instances at the end)
+    // TODO handle multiple worlds
+
+    previousInstances.addInstances(diffReport.worlds[0].instances);
 
     var newInstancePaths = [];
 
-    /*
-     * shortcut function to get potential instance paths given a set types
-     * NOTE: defined as a nested function to avoid polluting the visible API of ModelFactory
-     */
     var that = this;
-    var getPotentialInstancePaths = function (types) {
-      var paths = [];
 
-      for (var l = 0; l < types.length; l++) {
-        if (types[l].hasCapability(Resources.VISUAL_CAPABILITY)) {
-          // get potential instances with that type
-          paths = paths.concat(that.getAllPotentialInstancesOfType(types[l].getPath()));
-        }
-      }
-      return paths;
-    };
 
     // STEP 1: check new variables to see if any new instances are needed
-    var varsWithVizTypes = [];
-    const variables = this.getVariables(diffReport);
-    for (var i = 0; i < variables; i++) {
-      this.fetchVarsWithVisualTypes(variables, varsWithVizTypes, '');
-    }
+    const variables = ModelUtils.getVariables(diffReport);
+
+    const varsWithVizTypes = ModelUtils.fetchVarsWithVisualTypes(variables, '');
+
+    InstanceFactory.addPotentialInstancePaths(variables, previousInstances.geppettoModel);
     // for each variable, get types and potential instances of those types
     for (var j = 0; j < varsWithVizTypes.length; j++) {
       // var must exist since we just fetched it from the geppettoModel
       var variable = eval(varsWithVizTypes[j]);
       var varTypes = variable.getTypes();
-      newInstancePaths = newInstancePaths.concat(getPotentialInstancePaths(varTypes));
+      newInstancePaths = newInstancePaths.concat(InstanceFactory.getTypePotentialInstancePaths(varTypes));
     }
 
     // STEP 2: check types and create new instances if need be
     var diffTypes = diffReport.types;
-    newInstancePaths = newInstancePaths.concat(getPotentialInstancePaths(diffTypes));
+    newInstancePaths = newInstancePaths.concat(InstanceFactory.getTypePotentialInstancePaths(diffTypes));
 
     // STEP 3: call getInstance to create the instances
     var newInstances = previousInstances.getInstance(newInstancePaths);
@@ -128,21 +116,60 @@ class InstanceFactory {
 
     // STEP 5: If instances were added, re-populate shortcuts
     for (var k = 0; k < newInstances.length; k++) {
-      this.populateChildrenShortcuts(newInstances[k]);
+      newInstances[k].populateChildrenShortcuts();
     }
 
 
-    for (var k = 0; k < previousInstances.length; k++) {
-      this.populateConnections(previousInstances[k]);
+    for (let previousInstance of previousInstances) {
+      previousInstance.populateConnections();
     }
     previousInstances.addInstances(newInstances);
     return newInstances;
   }
   /**
+   * Adds potential instance paths to internal cache
+   *
+   * @param variables
+   * @param {GeppettoModel} geppettoModel
+   */
+  static addPotentialInstancePaths (variables, geppettoModel) {
+    var potentialInstancePaths = [];
+
+    for (var i = 0; i < variables.length; i++) {
+      ModelUtils.fetchAllInstantiableVariables(variables[i], potentialInstancePaths, '');
+    }
+
+    // add to allPaths and to allPathsIndexing (assumes they are new paths)
+    geppettoModel.updatePaths(potentialInstancePaths);
+  }
+
+
+  static createStaticInstance (rawInstance, parent) {
+    let instance;
+    switch (rawInstance.eClass) {
+    case Resources.SIMPLE_INSTANCE_NODE:
+      instance = new SimpleInstance(rawInstance, parent);
+      break;
+    case Resources.SIMPLE_CONNECTION_INSTANCE_NODE:
+      instance = new SimpleConnectionInstance(rawInstance, parent);
+      break;
+    default:
+      throw instance.eClass + " instance type is not supported";
+    }
+    if (instance.value) {
+      instance.value = ModelFactory.createValue(rawInstance, instance );
+    } else {
+      console.error("Instance", instance, "has no value defined");
+    }
+
+    return instance;
+  }
+
+  /**
    * Adds instances to a list of existing instances. It will expand the instance tree if it partially exists or create it if doesn't.
    * NOTE: instances will only be added if a matching variable can be found in the GeppettoModel
    */
-  addInstances (newInstancesPaths, topInstances, geppettoModel) {
+  static addInstances (newInstancesPaths, topInstances, geppettoModel) {
     // based on list of new paths, expand instance tree
     for (var j = 0; j < newInstancesPaths.length; j++) {
       /*
@@ -151,24 +178,24 @@ class InstanceFactory {
        */
       var idConcatPath = '';
       var splitInstancePath = newInstancesPaths[j].split('.');
-      for (var i = 0; i < splitInstancePath.length; i++) {
+      for (let i = 0; i < splitInstancePath.length; i++) {
         if (splitInstancePath[i].indexOf('[') > -1) {
           // contains array syntax = so grab array id
-          var arrayId = splitInstancePath[i].split('[')[0];
+          let arrayId = splitInstancePath[i].split('[')[0];
           // replace brackets
-          var arrayElementId = splitInstancePath[i];
+          let arrayElementId = splitInstancePath[i];
 
           splitInstancePath[i] = arrayId + '.' + arrayElementId;
         }
 
         idConcatPath += (i !== splitInstancePath.length - 1) ? (splitInstancePath[i] + '.') : splitInstancePath[i];
       }
-      this.buildInstanceHierarchy(idConcatPath, null, geppettoModel, topInstances);
+      InstanceFactory.buildInstanceHierarchy(idConcatPath, null, geppettoModel, topInstances);
     }
 
     // populate shortcuts including new instances just created
     for (var k = 0; k < topInstances.length; k++) {
-      this.populateChildrenShortcuts(topInstances[k]);
+      topInstances[k].populateChildrenShortcuts();
 
       // populate at window level
       // window[topInstances[k].getId()] = topInstances[k];
@@ -177,13 +204,12 @@ class InstanceFactory {
     // TODO Should we trigger that instances were added?
 
 
-
   }
 
   /**
    * Build instance hierarchy
    */
-  buildInstanceHierarchy (path, parentInstance, model, topLevelInstances) {
+  static buildInstanceHierarchy (path, parentInstance, model, topLevelInstances) {
     var variable = null;
     var newlyCreatedInstance = null;
     var newlyCreatedInstances = [];
@@ -284,7 +310,7 @@ class InstanceFactory {
           // check if visual type and inject AVisualCapability
           var visualType = explodedInstance.getVisualType();
           if ((!(visualType instanceof Array) && visualType !== null && visualType !== undefined)
-                        || (visualType instanceof Array && visualType.length > 0)) {
+            || (visualType instanceof Array && visualType.length > 0)) {
             explodedInstance.extendApi(AVisualCapability);
             ModelUtils.propagateCapabilityToParents(AVisualCapability, explodedInstance);
 
@@ -294,8 +320,8 @@ class InstanceFactory {
 
             // check if it has visual groups - if so add visual group capability
             if ((typeof visualType.getVisualGroups === "function")
-                            && visualType.getVisualGroups() !== null
-                            && visualType.getVisualGroups().length > 0) {
+              && visualType.getVisualGroups() !== null
+              && visualType.getVisualGroups().length > 0) {
               explodedInstance.extendApi(AVisualGroupCapability);
               explodedInstance.setVisualGroups(visualType.getVisualGroups());
             }
@@ -304,7 +330,7 @@ class InstanceFactory {
           // check if it has connections and inject AConnectionCapability
           if (explodedInstance.getType().getMetaType() === Resources.CONNECTION_TYPE) {
             explodedInstance.extendApi(AConnectionCapability);
-            this.resolveConnectionValues(explodedInstance);
+            explodedInstance.resolveConnectionValues();
           }
 
           if (explodedInstance.getType().getMetaType() === Resources.STATE_VARIABLE_TYPE) {
@@ -325,7 +351,7 @@ class InstanceFactory {
           // ad to newly created instances list
           newlyCreatedInstances.push(explodedInstance);
 
-          if (explodedInstance !== null || undefined) {
+          if (explodedInstance) {
             // this.newObjectCreated(explodedInstance);
           }
         }
@@ -356,7 +382,7 @@ class InstanceFactory {
         var visualType = newlyCreatedInstance.getVisualType();
         // check if visual type and inject AVisualCapability
         if ((!(visualType instanceof Array) && visualType !== null && visualType !== undefined)
-                    || (visualType instanceof Array && visualType.length > 0)) {
+          || (visualType instanceof Array && visualType.length > 0)) {
           newlyCreatedInstance.extendApi(AVisualCapability);
           // particles can move, we store its state in the time series coming from the statevariablecapability
           if (visualType.getId() === Resources.PARTICLES_TYPE) {
@@ -370,8 +396,8 @@ class InstanceFactory {
 
           // check if it has visual groups - if so add visual group capability
           if ((typeof visualType.getVisualGroups === "function")
-                        && visualType.getVisualGroups() !== null
-                        && visualType.getVisualGroups().length > 0) {
+            && visualType.getVisualGroups() !== null
+            && visualType.getVisualGroups().length > 0) {
             newlyCreatedInstance.extendApi(AVisualGroupCapability);
             newlyCreatedInstance.setVisualGroups(visualType.getVisualGroups());
           }
@@ -381,7 +407,7 @@ class InstanceFactory {
         // check if it has connections and inject AConnectionCapability
         if (newlyCreatedInstance.getType().getMetaType() === Resources.CONNECTION_TYPE) {
           newlyCreatedInstance.extendApi(AConnectionCapability);
-          this.resolveConnectionValues(newlyCreatedInstance);
+          newlyCreatedInstance.resolveConnectionValues();
         }
 
         if (newlyCreatedInstance.getType().getMetaType() === Resources.STATE_VARIABLE_TYPE) {
@@ -426,16 +452,15 @@ class InstanceFactory {
     }
   }
 
-  createStaticInstances (instances, parent) {
+  static createStaticInstances (instances, parent) {
     return instances ? instances.map(instance => InstanceFactory.createStaticInstance(instance, parent)) : [];
   }
-
 
 
   /**
    * Get all instance given a type or a variable (path or actual object)
    */
-  getAllInstancesOf (typeOrVar) {
+  static getAllInstancesOf (typeOrVar) {
     if (typeof typeOrVar === 'string' || typeOrVar instanceof String) {
       // it's an evil string, try to eval as path in the name of satan
       typeOrVar = eval(typeOrVar);
@@ -445,9 +470,9 @@ class InstanceFactory {
 
 
     if (typeOrVar instanceof Type) {
-      allInstances = this.getAllInstancesOfType(typeOrVar);
+      allInstances = ModelFactory.getAllInstancesOfType(typeOrVar);
     } else if (typeOrVar.getMetaType() === Resources.VARIABLE_NODE) {
-      allInstances = this.getAllInstancesOfVariable(typeOrVar, instances);
+      allInstances = ModelFactory.getAllInstancesOfVariable(typeOrVar);
     } else {
       // good luck
       throw ("The argument " + typeOrVar + " is neither a Type or a Variable. Good luck.");
@@ -459,7 +484,7 @@ class InstanceFactory {
   /**
    * Get all instances given a type
    */
-  getAllInstancesOfType (type) {
+  static getAllInstancesOfType (type) {
     if (!(type instanceof Type)) {
       // raise hell
       throw ("The argument " + type + " is not a Type or a valid Type path. Good luck.");
@@ -472,102 +497,50 @@ class InstanceFactory {
   /**
    * Get all instances given a variable
    */
-  getAllInstancesOfVariable (variable) {
+  static getAllInstancesOfVariable (variable) {
     if (!(variable.getMetaType() === Resources.VARIABLE_NODE)) {
       // raise hell
       throw ("The argument " + variable + " is not a Type or a valid Type path. Good luck.");
     }
 
 
-    return this.findMatchingInstancesByVariable(variable);
-  }
-
-  /**
-   * Get all POTENTIAL instances ending with a given string
-   */
-  getAllPotentialInstancesEndingWith (endingString) {
-    var matchingPotentialInstances = [];
-
-    for (var i = 0; i < this.allPaths.length; i++) {
-      if (this.allPaths[i].path.endsWith(endingString) && this.allPaths[i].path.indexOf("*") === -1) {
-        matchingPotentialInstances.push(this.allPaths[i].path);
-      }
-    }
-
-    return matchingPotentialInstances;
-  }
-
-
-  /**
-   * Get all POTENTIAL instances starting with a given string
-   */
-  getAllPotentialInstancesStartingWith (startingString) {
-    var matchingPotentialInstances = [];
-
-    for (var i = 0; i < this.allPaths.length; i++) {
-      if (this.allPaths[i].path.startsWith(startingString) && this.allPaths[i].path.indexOf("*") === -1) {
-        matchingPotentialInstances.push(this.allPaths[i].path);
-      }
-    }
-
-    return matchingPotentialInstances;
-  }
-
-  static createStaticInstance (rawInstance, parent) {
-    let instance;
-    switch (rawInstance.eClass) {
-    case Resources.SIMPLE_INSTANCE_NODE:
-      instance = new SimpleInstance(rawInstance, parent);
-      break;
-    case Resources.SIMPLE_CONNECTION_INSTANCE_NODE:
-      instance = new SimpleConnectionInstance(rawInstance, parent);
-      break;
-    default:
-      throw instance.eClass + " instance type is not supported";
-    }
-    if (instance.value) {
-      instance.value = ModelFactory.createValue(rawInstance,  instance );
-    } else {
-      console.error("Instance", instance, "has no value defined");
-    }
-
-    return instance;
+    return InstanceFactory.findMatchingInstancesByVariable(variable);
   }
 
   /**
    * Creates and populates initial instance tree skeleton with any instance that needs to be visualized
+   * @param {GeppettoModel} geppettoModel
+   * @returns {[]}
    */
   static instantiateVariables (geppettoModel) {
 
     let instances = [];
-
-    // we need to explode instances for variables with visual types
-    let varsWithVizTypes = [];
-
     // we need to fetch all potential instance paths (even for not exploded instances)
-    let allPotentialInstancePaths = [];
-    var allPotentialInstancePathsForIndexing = [];
+    let instantiableVariables = [];
 
     // builds list of vars with visual types and connection types - start traversing from top level variables
     let vars = geppettoModel.getAllVariables();
+
+    // we need to explode instances for variables with visual types
+    let varsWithVizTypes = ModelUtils.fetchVarsWithVisualTypes(vars, '');
     for (let i = 0; i < vars.length; i++) {
-      ModelUtils.fetchVarsWithVisualTypes(vars[i], varsWithVizTypes, '');
-      ModelUtils.fetchAllPotentialInstancePaths(vars[i], allPotentialInstancePaths, allPotentialInstancePathsForIndexing, '');
+
+      instantiableVariables.push.apply(instantiableVariables, ModelUtils.fetchAllInstantiableVariables(vars[i], ''));
     }
 
-    geppettoModel.allPaths = geppettoModel.allPaths.concat(allPotentialInstancePaths);
-    geppettoModel.allPathsIndexing = allPotentialInstancePathsForIndexing;
+    geppettoModel.updatePaths(instantiableVariables);
+
     var varsToInstantiate = varsWithVizTypes;
 
     // based on list, traverse again and build instance objects
     for (var j = 0; j < varsToInstantiate.length; j++) {
-      this.buildInstanceHierarchy(varsToInstantiate[j], null, geppettoModel, instances);
+      InstanceFactory.buildInstanceHierarchy(varsToInstantiate[j], null, geppettoModel, instances);
     }
 
     // populate shortcuts / populate connection references
     for (var k = 0; k < instances.length; k++) {
-      ModelUtils.populateChildrenShortcuts(instances[k]);
-      ModelUtils.populateConnections(instances[k]);
+      instances[k].populateChildrenShortcuts();
+      instances[k].populateConnections();
     }
 
     return instances;
@@ -576,223 +549,5 @@ class InstanceFactory {
 
 }
 
-class Instances extends Array {
 
-  constructor (geppettoModel) {
-    super();
-    this.geppettoModel = geppettoModel;
-    let instances;
-
-    // Initialize instances with static instances already present in the model
-    if (geppettoModel.getCurrentWorld()) {
-      instances = geppettoModel.getCurrentWorld().getInstances().concat(InstanceFactory.instantiateVariables(geppettoModel));
-    } else {
-      instances = InstanceFactory.instantiateVariables(geppettoModel);
-    }
-    
-    this.addInstances(instances);
-    // create global shortcuts to top level instances
-    for (var i = 0; i < instances.length; i++) {
-      this[instances[i].getId()] = instances[i];
-    }
-  }
-
-  // add method to add instances to window.Instances
-  addInstancesFromPaths (instancePaths) {
-    if (!(instancePaths.constructor === Array)) {
-      // if it's not an array throw it into an array with a single element
-      instancePaths = [instancePaths];
-    }
-
-    this.instanceFactory.addInstances(instancePaths, this, this.geppettoModel);
-  }
-
-  addInstances (instances) {
-    instances.forEach(instance => this.updateConnectionInstances(instance));
-    this.push.apply(this, instances);
-  }
-
-  getInstance (instancePath, create, override) {
-    if (create === undefined) {
-      create = true;
-    }
-  
-    var instances = [];
-    var InstanceVarName = "this.";
-    var arrayParameter = true;
-  
-    if (!(instancePath.constructor === Array)) {
-      instancePath = [instancePath];
-      arrayParameter = false;
-    }
-  
-    // check if we have any [*] for array notation and replace with exploded paths
-    for (var j = 0; j < instancePath.length; j++) {
-      if (instancePath[j].indexOf('[*]') > -1) {
-        var arrayPath = instancePath[j].substring(0, instancePath[j].indexOf('['));
-        var subArrayPath = instancePath[j].substring(instancePath[j].indexOf(']') + 1, instancePath[j].length);
-        var arrayInstance = this.getInstance(arrayPath);
-        var arraySize = arrayInstance.getSize();
-  
-        // remove original * entry
-        instancePath.splice(j, 1);
-        // add exploded elements
-        for (var x = 0; x < arraySize; x++) {
-          instancePath.push(arrayPath + '[' + x + ']' + subArrayPath);
-        }
-      }
-    }
-  
-  
-    for (var i = 0; i < instancePath.length; i++) {
-      try {
-        var potentialVar = eval(InstanceVarName + instancePath[i]);
-        if (potentialVar !== undefined) {
-          if (override) {
-            this.deleteInstance(instances[i]);
-            this.addInstancesFromPaths(instancePath[i]);
-            instances.push(eval(InstanceVarName + instancePath[i]));
-          } else {
-            instances.push(potentialVar);
-          }
-        } else {
-          if (create) {
-            this.addInstancesFromPaths(instancePath[i]);
-            instances.push(eval(InstanceVarName + instancePath[i]));
-          }
-        }
-      } catch (e) {
-        if (create) {
-          try {
-  
-            this.addInstancesFromPaths(instancePath[i]);
-            instances[i] = eval(InstanceVarName + instancePath[i]);
-          } catch (e) {
-            throw new Error("The instance " + instancePath[i] + " does not exist in the current model");
-          }
-        }
-      }
-    }
-    instances.forEach(instance => {
-      if (instance) {
-        this.instanceFactory.updateConnectionInstances(instance);
-      }
-    });
-    if (instances.length === 1 && !arrayParameter) {
-      // if we received an array we want to return an array even if there's only one element
-      return instances[0];
-    } else {
-      return instances;
-    }
-  }
- 
-  /**
-   * Delete instance, also removing types and variables
-   *
-   * @param instance
-   */
-  deleteInstance (instance) {
-    var instancePath = instance.getPath();
-    var removeMatchingInstanceFromArray = function (instanceArray, instance) {
-      var index = null;
-      for (var i = 0; i < instanceArray.length; i++) {
-        if (instanceArray[i].getPath() === instance.getPath()) {
-          index = i;
-          break;
-        }
-      }
-
-      if (index !== null) {
-        instanceArray.splice(index, 1);
-      }
-    };
-
-    // delete instance
-    var parent = instance.getParent();
-    if (parent === undefined) {
-      /*
-       * parent is window
-       * remove from array of children
-       */
-      removeMatchingInstanceFromArray(window.Instances, instance);
-      // remove reference
-      delete window[instance.getId()];
-    } else {
-      // remove from array of children
-      removeMatchingInstanceFromArray(parent.getChildren(), instance);
-      // remove reference
-      delete parent[instance.getId()];
-    }
-
-    // unresolve type
-    for (var j = 0; j < instance.getTypes().length; j++) {
-      this.unresolveType(instance.getTypes()[j]);
-    }
-
-    // re-run model shortcuts
-    this.populateChildrenShortcuts(this.geppettoModel);
-
-    this.instanceDeleted(instancePath);
-  }
-
-  instanceDeleted (instancePath) {
-    this.instanceDeletedCallback(instancePath);
-  }
-
-
-  updateConnectionInstances (instance) {
-    var typesToSearch = this.geppettoModel.getAllTypesOfMetaType(Resources.COMPOSITE_TYPE_NODE);
-    var connectionVariables = ModelUtils.getAllVariablesOfMetaType(typesToSearch, Resources.CONNECTION_TYPE);
-    var connectionInstances = [];
-
-    for (var x = 0; x < connectionVariables.length; x++) {
-      var variable = connectionVariables[x];
-      var present = false;
-      if (instance.connections) {
-        // if there's already connections we haave to check if there is already one for this variable
-        for (var y = 0; y < instance.connections.length; y++) {
-          if (instance.connections[y].getVariable() === variable) {
-            present = true;
-            break;
-          }
-        }
-
-      }
-      if (!present) {
-        var initialValues = variable.getWrappedObj().initialValues;
-
-        var connectionValue = initialValues[0].value;
-        // resolve A and B to Pointer Objects
-        var pointerA = this.createPointer(connectionValue.a);
-        var pointerB = this.createPointer(connectionValue.b);
-        if (pointerA.getPath() === instance.getId() || pointerB.getPath() === instance.getId()) {
-          // TODO if there is more than one instance of the same projection this code will break
-          var parentInstance = this.instances.getInstance(this.getAllPotentialInstancesEndingWith(variable.getParent().getId())[0]);
-          var options = {
-            id: variable.getId(),
-            name: variable.getId(),
-            _metaType: Resources.INSTANCE_NODE,
-            variable: variable,
-            children: [],
-            parent: parentInstance
-          };
-          var connectionInstance = InstanceFactory.createInstance(options);
-          connectionInstance.extendApi(AConnectionCapability);
-          this.augmentPointer(pointerA, connectionInstance);
-          this.augmentPointer(pointerB, connectionInstance);
-
-          // set A and B on connection
-          connectionInstance.setA(pointerA);
-          connectionInstance.setB(pointerB);
-
-          connectionInstances.push(connectionInstance);
-        }
-      }
-    }
-
-  }
-
-
-}
-
-export default new InstanceFactory();
+export default InstanceFactory;

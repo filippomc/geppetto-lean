@@ -9,61 +9,66 @@ export default class ModelUtils {
   /**
    * Build "list" of variables that have a visual type
    */
-  static fetchVarsWithVisualTypes (node, varsWithVizTypes, parentPath) {
+  static fetchVarsWithVisualTypes (variables, parentPath) {
     /*
      * build "list" of variables that have a visual type (store "path")
      * check meta type - we are only interested in variables
      */
-    var path = (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId());
-    if (node.getMetaType() === Resources.VARIABLE_NODE) {
-      var allTypes = node.getTypes();
-      for (var i = 0; i < allTypes.length; i++) {
-        // if normal type or composite type check if it has a visual type
-        if (allTypes[i].getMetaType() === Resources.TYPE_NODE || allTypes[i].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
-          let vizType = allTypes[i].getVisualType();
+    const varsWithVizTypes = [];
+    for (let node of variables) {
+      var path = (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId());
+      if (node.getMetaType() === Resources.VARIABLE_NODE) {
+        var allTypes = node.getTypes();
+        for (var i = 0; i < allTypes.length; i++) {
+          // if normal type or composite type check if it has a visual type
+          if (allTypes[i].getMetaType() === Resources.TYPE_NODE || allTypes[i].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
+            let vizType = allTypes[i].getVisualType();
 
-          if (vizType !== undefined && vizType !== null) {
-            // ADD to list of vars with viz types
-            varsWithVizTypes.push(path);
-          }
-        } else if (allTypes[i].getMetaType() === Resources.ARRAY_TYPE_NODE) {
-          // if array type, need to check what type the array is of
-          let arrayType = allTypes[i].getType();
-          let vizType = arrayType.getVisualType();
-
-          if (vizType !== undefined && vizType !== null) {
-            // ADD to list of vars with viz types
-            varsWithVizTypes.push(path);
-          }
-        } else if ((allTypes[i].getMetaType() === Resources.VISUAL_TYPE_NODE) || (allTypes[i].getMetaType() === Resources.COMPOSITE_VISUAL_TYPE_NODE)) {
-          varsWithVizTypes.push(path);
-        }
-
-        // RECURSE on any variables inside composite types
-        if (allTypes[i].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
-          let vars = allTypes[i].getVariables();
-
-          if (vars !== undefined && vars !== null) {
-            for (var j = 0; j < vars.length; j++) {
-              ModelUtils.fetchVarsWithVisualTypes(vars[j], varsWithVizTypes, (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId()));
+            if (vizType !== undefined && vizType !== null) {
+              // ADD to list of vars with viz types
+              varsWithVizTypes.push(path);
             }
-          }
-        } else if (allTypes[i].getMetaType() === Resources.ARRAY_TYPE_NODE) {
-          var arrayType = allTypes[i].getType();
+          } else if (allTypes[i].getMetaType() === Resources.ARRAY_TYPE_NODE) {
+            // if array type, need to check what type the array is of
+            let arrayType = allTypes[i].getType();
+            let vizType = arrayType.getVisualType();
 
-          // check if the array is of composite type and if so recurse too on contained variables
-          if (arrayType.getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
-            let vars = arrayType.getVariables();
+            if (vizType !== undefined && vizType !== null) {
+              // ADD to list of vars with viz types
+              varsWithVizTypes.push(path);
+            }
+          } else if ((allTypes[i].getMetaType() === Resources.VISUAL_TYPE_NODE) || (allTypes[i].getMetaType() === Resources.COMPOSITE_VISUAL_TYPE_NODE)) {
+            varsWithVizTypes.push(path);
+          }
+
+          // RECURSE on any variables inside composite types
+          if (allTypes[i].getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
+            let vars = allTypes[i].getVariables();
 
             if (vars !== undefined && vars !== null) {
-              for (var j = 0; j < vars.length; j++) {
-                ModelUtils.fetchVarsWithVisualTypes(vars[j], varsWithVizTypes, (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId()));
+
+              varsWithVizTypes.push.apply(varsWithVizTypes, ModelUtils.fetchVarsWithVisualTypes(vars, (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId())));
+
+            }
+          } else if (allTypes[i].getMetaType() === Resources.ARRAY_TYPE_NODE) {
+            var arrayType = allTypes[i].getType();
+
+            // check if the array is of composite type and if so recurse too on contained variables
+            if (arrayType.getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
+              let vars = arrayType.getVariables();
+
+              if (vars !== undefined && vars !== null) {
+
+                varsWithVizTypes.push.apply(varsWithVizTypes, ModelUtils.fetchVarsWithVisualTypes(vars, (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId())));
+
               }
             }
           }
         }
       }
+
     }
+    return varsWithVizTypes;
   }
 
   /**
@@ -129,43 +134,20 @@ export default class ModelUtils {
   /**
    * Build list of potential instance paths (excluding connection instances)
    */
-  static fetchAllPotentialInstancePaths (node, allPotentialPaths, allPotentialPathsForIndexing, parentPath) {
+  static fetchAllInstantiableVariables (node, parentPath) {
     // build new path
     var xpath = '';
     var nodeRef = node;
-    var isStaticVar = (nodeRef instanceof Variable) && node.isStatic();
 
-    if (isStaticVar) {
-      /*
-       * NOTE: for static variables, we add the variable path to the indexing list as ...
-       * NOTE: it's the only way to access the variable since there are no instances for static variables
-       */
-      xpath = node.getPath();
-    } else {
-      xpath = (parentPath === '') ? node.getId() : (parentPath + '.' + node.getId());
-    }
-
-    // build entry for path storing and indexing
-    var entry = {
-      path: xpath,
-      metaType: node.getType().getMetaType(),
-      type: node.getType().getPath(),
-      static: isStaticVar
-    };
 
     // always add if not a static var, otherwise check that it wasnt already added
 
-    allPotentialPaths.push(entry);
-    // only add to indexing if it's not a connection or nested in a composite type
-    if (ModelUtils.includePotentialInstance(node, xpath)) {
-      allPotentialPathsForIndexing.push(entry);
-    }
-
+    const all = node;
 
     var potentialParentPaths = [];
     // check meta type - we are only interested in NON-static variables
     if ((nodeRef instanceof Variable) && !node.isStatic()) {
-      var allTypes = node.getTypes();
+      const allTypes = node.getTypes();
 
       var arrayType = undefined;
       for (var m = 0; m < allTypes.length; m++) {
@@ -188,8 +170,7 @@ export default class ModelUtils {
             metaType: arrayMetaType,
             type: arrayPath
           };
-          allPotentialPaths.push(starEntry);
-          allPotentialPathsForIndexing.push(starEntry);
+          all.push(starEntry);
         }
 
         // add each array element path
@@ -202,20 +183,16 @@ export default class ModelUtils {
             metaType: arrayMetaType,
             type: arrayPath
           };
-          allPotentialPaths.push(arrayElementEntry);
-          if (this.includePotentialInstance(node, arrayElementPath)) {
-            allPotentialPathsForIndexing.push(arrayElementEntry);
-          }
+          all.push(arrayElementEntry);
         }
       } else {
         potentialParentPaths.push(xpath);
       }
 
       // STEP 2: RECURSE on ALL potential parent paths
-      var allTypes = node.getTypes();
       for (var i = 0; i < allTypes.length; i++) {
         // RECURSE on any variables inside composite types
-        this.fetchAllPotentialInstancePathsForType(allTypes[i], allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths);
+        this.fetchAllPotentialInstancePathsForType(node.getTypes(), all, potentialParentPaths);
       }
     }
   }
@@ -223,7 +200,7 @@ export default class ModelUtils {
   /**
    * Build list of partial instance types starting from a type
    */
-  static fetchAllPotentialInstancePathsForType (type, allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths) {
+  static fetchAllPotentialInstancePathsForType (type, allPotentialPaths, potentialParentPaths) {
     if (type.getMetaType() === Resources.COMPOSITE_TYPE_NODE) {
       var vars = type.getVariables();
 
@@ -231,11 +208,11 @@ export default class ModelUtils {
         for (var j = 0; j < vars.length; j++) {
           if (potentialParentPaths.length > 0) {
             for (var g = 0; g < potentialParentPaths.length; g++) {
-              this.fetchAllPotentialInstancePaths(vars[j], allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths[g]);
+              this.fetchAllInstantiableVariables(vars[j], allPotentialPaths, potentialParentPaths[g]);
             }
           } else {
             // used for partial instance path generation
-            this.fetchAllPotentialInstancePaths(vars[j], allPotentialPaths, allPotentialPathsForIndexing, '');
+            this.fetchAllInstantiableVariables(vars[j], allPotentialPaths, '');
           }
         }
       }
@@ -250,16 +227,25 @@ export default class ModelUtils {
           for (var l = 0; l < vars.length; l++) {
             if (potentialParentPaths.length > 0) {
               for (var h = 0; h < potentialParentPaths.length; h++) {
-                this.fetchAllPotentialInstancePaths(vars[l], allPotentialPaths, allPotentialPathsForIndexing, potentialParentPaths[h]);
+                this.fetchAllInstantiableVariables(vars[l], allPotentialPaths, potentialParentPaths[h]);
               }
             } else {
               // used for partial instance path generation
-              this.fetchAllPotentialInstancePaths(vars[l], allPotentialPaths, allPotentialPathsForIndexing, '');
+              this.fetchAllInstantiableVariables(vars[l], allPotentialPaths, '');
             }
           }
         }
       }
     }
+  }
+
+
+  static getVariables (rawGeppettoModel) {
+    if (!rawGeppettoModel.worlds || !rawGeppettoModel.worlds.length) {
+      return rawGeppettoModel.variables;
+    }
+    const world = rawGeppettoModel.worlds[0]; // TODO handle multiple worlds
+    return world.variables.concat(rawGeppettoModel.variables);
   }
 
 
@@ -354,40 +340,6 @@ export default class ModelUtils {
 
     // else --> live & let die
   }
-
-
-  /**
-   * Populate shortcuts of children onto parents
-   */
-  static populateChildrenShortcuts (node) {
-    // check if getChildren exists, if so add shortcuts based on ids and recurse on each
-    if (typeof node.getChildren === "function") {
-      var children = node.getChildren();
-
-      if (children !== undefined) {
-        for (var i = 0; i < children.length; i++) {
-          // do not populate shortcuts for array instances - children are accessed as array elements
-          if (node instanceof Variable && children[i] instanceof Type) {
-            // it's an anonymous type we don't want it to be in the path
-            ModelUtils.populateChildrenShortcuts(children[i]);
-
-            var grandChildren = children[i].getChildren();
-            for (var j = 0; j < grandChildren.length; j++) {
-              node[grandChildren[j].getId()] = grandChildren[j];
-            }
-
-            continue;
-          }
-          if (node.getMetaType() !== Resources.ARRAY_INSTANCE_NODE) {
-            node[children[i].getId()] = children[i];
-          }
-          ModelUtils.populateChildrenShortcuts(children[i]);
-        }
-      }
-    }
-  }
-
-
 
 
   /**

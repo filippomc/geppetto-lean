@@ -6,15 +6,14 @@
  */
 
 import { extend } from '../Utility';
-import ObjectWrapper from './ObjectWrapper';
-import Instance from "./Instance";
 import Resources from "../Resources";
 import ModelFactory from "../ModelFactory";
 import Type from "./Type";
 import AParameterCapability from "../capabilities/AParameterCapability";
 import AConnectionCapability from "../capabilities/AConnectionCapability";
+import InstantiableNode from "./InstantiableNode";
 
-export default class Variable extends ObjectWrapper {
+export default class Variable extends InstantiableNode {
 
   constructor (options) {
     super(options);
@@ -254,37 +253,41 @@ export default class Variable extends ObjectWrapper {
     var hasPointerType = false;
     var swapTypes = true;
 
-    if (types !== undefined) {
-      for (var i = 0; i < types.length; i++) {
-        // check if references are already populated
-        if (types[i] instanceof Type) {
-          swapTypes = false;
-          break;
-        }
-
-        // get reference string - looks like this --> '//@libraries.1/@types.5';
-        var refStr = types[i].$ref;
-
-        // if it's anonymous there's no reference
-        if (refStr !== undefined) {
-          // go grab correct type from Geppetto Model
-          var typeObj = node.geppettoModel.resolve(refStr);
-
-          // track if we have pointer type
-          if (typeObj.getMetaType() === Resources.POINTER_TYPE) {
-            hasPointerType = true;
-          }
-
-          // add to list
-          referencedTypes.push(typeObj);
-        }
+    for (const type of types) {
+      // check if references are already populated
+      if (type instanceof Type) {
+        swapTypes = false;
+        break;
       }
 
-      if (swapTypes) {
-        // set types to actual object references using backbone setter
-        node.setTypes(referencedTypes);
+      // get reference string - looks like this --> '//@libraries.1/@types.5';
+      var refStr = type.$ref;
+
+      // if it's anonymous there's no reference
+      if (refStr !== undefined) {
+        // go grab correct type from Geppetto Model
+        var typeObj = node.geppettoModel.resolve(refStr);
+
+        // track if we have pointer type
+        if (typeObj.getMetaType() === Resources.POINTER_TYPE) {
+          hasPointerType = true;
+        }
+
+        // add to list
+        referencedTypes.push(typeObj);
+        if(typeObj.getVariables !== undefined) {
+          for(let variable of typeObj.getVariables()){
+            variable.populateTypeReferences();
+          }
+        }
       }
     }
+
+    if (swapTypes) {
+      // set types to actual object references using backbone setter
+      node.setTypes(referencedTypes);
+    }
+
 
     // check if pointer type
     if (hasPointerType) {
@@ -314,4 +317,18 @@ export default class Variable extends ObjectWrapper {
       }
     }
   }
+
+  populateShortcutsToChild (child) {
+    if (child instanceof Type) {
+      // it's an anonymous type we don't want it to be in the path
+      child.populateChildrenShortcuts();
+
+      for (let grandChild of child.getChildren()) {
+        this[grandChild.getId()] = grandChild;
+      }
+    }
+  }
+
+
+
 }
